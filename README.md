@@ -112,7 +112,7 @@ Akses lokal:
 
 | Role | Email | Password |
 |---|---|---|
-| Administrator | `forfun071020@gmail.com` | `Admin123!` |
+| Administrator | `admin@example.com` | `Admin123!` |
 | Head | `head@example.com` | `Head123!` |
 | Technician 1 | `tech1@example.com` | `Tech123!` |
 | Technician 2 | `tech2@example.com` | `Tech123!` |
