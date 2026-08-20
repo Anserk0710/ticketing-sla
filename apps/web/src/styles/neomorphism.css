@@ -1,0 +1,175 @@
+:root {
+  --neo-background: #e1e5f2;
+  --neo-background-highlight: #edf0f7;
+  --neo-surface: #ffffff;
+  --neo-foreground: #022b3a;
+  --neo-primary: #1f7a8c;
+  --neo-accent: #bfdbf7;
+  --neo-muted: rgba(2, 43, 58, 0.66);
+  --neo-shadow-raised:
+    9px 9px 20px rgba(2, 43, 58, 0.13),
+    -9px -9px 20px rgba(255, 255, 255, 0.86);
+  --neo-shadow-soft:
+    5px 5px 12px rgba(2, 43, 58, 0.10),
+    -5px -5px 12px rgba(255, 255, 255, 0.78);
+  --neo-shadow-inset:
+    inset 4px 4px 10px rgba(2, 43, 58, 0.11),
+    inset -4px -4px 10px rgba(255, 255, 255, 0.88);
+}
+
+.neo-page-shell {
+  background:
+    radial-gradient(circle at 14% 10%, rgba(191, 219, 247, 0.7), transparent 32rem),
+    linear-gradient(145deg, var(--neo-background-highlight), var(--neo-background));
+  color: var(--neo-foreground);
+}
+
+.neo-card {
+  border: 1px solid rgba(255, 255, 255, 0.64);
+  background: rgba(225, 229, 242, 0.88);
+  box-shadow: var(--neo-shadow-raised);
+}
+
+.neo-card-white {
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: var(--neo-shadow-raised);
+}
+
+.neo-soft {
+  border: 1px solid rgba(255, 255, 255, 0.52);
+  background: rgba(225, 229, 242, 0.72);
+  box-shadow: var(--neo-shadow-soft);
+}
+
+.neo-inset {
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  background: rgba(225, 229, 242, 0.72);
+  box-shadow: var(--neo-shadow-inset);
+}
+
+.neo-input {
+  min-height: 48px;
+  border: 1px solid rgba(2, 43, 58, 0.05) !important;
+  border-radius: 14px !important;
+  background: rgba(225, 229, 242, 0.76) !important;
+  color: var(--neo-foreground) !important;
+  box-shadow: var(--neo-shadow-inset) !important;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.neo-input::placeholder {
+  color: rgba(2, 43, 58, 0.44) !important;
+}
+
+.neo-input:hover:not(:disabled) {
+  background: rgba(230, 234, 245, 0.92) !important;
+}
+
+.neo-input:focus,
+.neo-input:focus-visible {
+  border-color: rgba(31, 122, 140, 0.72) !important;
+  outline: 2px solid var(--neo-primary) !important;
+  outline-offset: 2px !important;
+  box-shadow: var(--neo-shadow-inset) !important;
+}
+
+.neo-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.neo-button-primary {
+  min-height: 48px;
+  border: 1px solid rgba(2, 43, 58, 0.08) !important;
+  border-radius: 14px !important;
+  background: var(--neo-primary) !important;
+  color: #ffffff !important;
+  box-shadow:
+    6px 6px 14px rgba(2, 43, 58, 0.2),
+    -4px -4px 10px rgba(255, 255, 255, 0.72) !important;
+  transition: transform 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+}
+
+.neo-button-primary:hover:not(:disabled) {
+  background: #196a7a !important;
+  transform: translateY(-1px);
+}
+
+.neo-button-primary:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow:
+    inset 3px 3px 8px rgba(2, 43, 58, 0.2),
+    inset -3px -3px 8px rgba(255, 255, 255, 0.16) !important;
+}
+
+.neo-button-secondary {
+  min-height: 44px;
+  border: 1px solid rgba(255, 255, 255, 0.54) !important;
+  border-radius: 14px !important;
+  background: rgba(225, 229, 242, 0.8) !important;
+  color: var(--neo-foreground) !important;
+  box-shadow: var(--neo-shadow-soft) !important;
+}
+
+.neo-button-secondary:hover:not(:disabled) {
+  background: rgba(191, 219, 247, 0.56) !important;
+}
+
+.neo-icon-button {
+  display: inline-flex;
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.46);
+  border-radius: 12px;
+  background: rgba(225, 229, 242, 0.72);
+  color: var(--neo-foreground);
+  box-shadow: var(--neo-shadow-soft);
+  transition: background-color 140ms ease, box-shadow 140ms ease;
+}
+
+.neo-icon-button:hover:not(:disabled) {
+  background: rgba(191, 219, 247, 0.58);
+}
+
+.neo-icon-button:active:not(:disabled) {
+  box-shadow: var(--neo-shadow-inset);
+}
+
+.neo-focusable:focus-visible,
+.neo-icon-button:focus-visible,
+.neo-button-primary:focus-visible,
+.neo-button-secondary:focus-visible {
+  outline: 2px solid var(--neo-primary) !important;
+  outline-offset: 2px !important;
+}
+
+.neo-dropzone {
+  border: 1px dashed rgba(31, 122, 140, 0.42);
+  background: rgba(225, 229, 242, 0.66);
+  box-shadow: var(--neo-shadow-inset);
+  transition: border-color 160ms ease, background-color 160ms ease, transform 160ms ease;
+}
+
+.neo-dropzone[data-dragging='true'] {
+  border-color: var(--neo-primary);
+  background: rgba(191, 219, 247, 0.52);
+  transform: translateY(-1px);
+}
+
+.neo-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(2, 43, 58, 0.12), transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .neo-input,
+  .neo-button-primary,
+  .neo-button-secondary,
+  .neo-icon-button,
+  .neo-dropzone {
+    transition: none !important;
+  }
+}

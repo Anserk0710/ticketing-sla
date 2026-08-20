@@ -1,0 +1,610 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  PENDING_EMAIL_VERIFICATION
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  SUSPENDED
+  DISABLED
+}
+
+enum TechnicianApprovalDecision {
+  APPROVED
+  REJECTED
+  SUSPENDED
+  REACTIVATED
+}
+
+enum TicketStatus {
+  NEW
+  RESPONDED
+  ASSIGNED
+  ON_SITE
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+  REJECTED
+  REOPENED
+  CANCELLED
+  PENDING
+}
+
+enum TicketResponseType {
+  OFFICIAL_INITIAL_RESPONSE
+  FOLLOW_UP
+  PUBLIC_UPDATE
+}
+
+enum AssignmentStatus {
+  ACTIVE
+  ENDED
+}
+
+enum AssignmentMemberStatus {
+  ASSIGNED
+  ACCEPTED
+  REJECTED
+  ON_SITE
+  IN_PROGRESS
+  COMPLETED
+  REMOVED
+  REASSIGNED
+}
+
+enum SlaType {
+  RESPOND
+  WORK
+}
+
+enum SlaStatus {
+  OPEN
+  WARNING
+  BREACHED
+  COMPLETED
+  ENDED
+}
+
+enum SlaOutcome {
+  MET
+  BREACHED
+  COMPLETED_BREACHED
+  TERMINATED_REJECTED
+  REASSIGNED
+  REMOVED
+  CANCELLED
+}
+
+enum SlaEventType {
+  STARTED
+  WARNING
+  BREACHED
+  COMPLETED
+  ENDED
+  RECALCULATED
+}
+
+enum NotificationType {
+  TICKET_NEW
+  SLA_RESPOND_WARNING
+  SLA_RESPOND_BREACHED
+  ASSIGNMENT_NEW
+  ASSIGNMENT_REJECTED
+  SLA_WORK_WARNING
+  SLA_WORK_BREACHED
+  TECHNICIAN_CHECKIN
+  TECHNICIAN_COMPLETED
+  TICKET_RESOLVED
+  TICKET_CLOSED
+  TICKET_REOPENED
+  TECHNICIAN_APPROVED
+  TECHNICIAN_REJECTED
+}
+
+enum MediaContext {
+  COMPLAINT
+  CHECKIN
+  COMPLETION
+}
+
+enum MediaAccess {
+  INTERNAL
+  PUBLIC_SAFE
+}
+
+model User {
+  id                  String   @id @default(uuid()) @db.Uuid
+  email               String   @unique
+  phoneNormalized     String?  @unique @map("phone_normalized")
+  passwordHash        String   @map("password_hash")
+  displayName         String   @map("display_name")
+  status              UserStatus @default(PENDING_APPROVAL)
+  mustChangePassword  Boolean  @default(false) @map("must_change_password")
+  lastLoginAt         DateTime? @map("last_login_at")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  roles               UserRole[]
+  refreshTokens       RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+  technicianProfile   TechnicianProfile?
+  technicianReviews   TechnicianApprovalLog[] @relation("ApprovalReviewer")
+  createdQrCodes      QrCode[] @relation("QrCreatedBy")
+  createdPolicies     SlaPolicyVersion[] @relation("PolicyCreatedBy")
+  ticketResponses     TicketResponse[] @relation("ResponseCreatedBy")
+  ticketStatusLogs    TicketStatusLog[] @relation("StatusActor")
+  ticketComments      TicketComment[] @relation("CommentCreatedBy")
+  assignmentsCreated  TicketAssignment[] @relation("AssignedBy")
+  assignmentMembers   AssignmentMember[] @relation("TechnicianAssignments")
+  workCompletions     WorkCompletion[] @relation("CompletionSubmittedBy")
+  mediaUploads        MediaAsset[] @relation("MediaUploadedBy")
+  notifications       Notification[]
+  auditLogs           AuditLog[] @relation("AuditActor")
+
+  @@map("users")
+}
+
+model Role {
+  id          String @id @default(uuid()) @db.Uuid
+  name        String @unique
+  description String?
+  users       UserRole[]
+  permissions RolePermission[]
+  @@map("roles")
+}
+
+model Permission {
+  id          String @id @default(uuid()) @db.Uuid
+  code        String @unique
+  description String?
+  roles       RolePermission[]
+  @@map("permissions")
+}
+
+model UserRole {
+  userId String @map("user_id") @db.Uuid
+  roleId String @map("role_id") @db.Uuid
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  roleId       String @map("role_id") @db.Uuid
+  permissionId String @map("permission_id") @db.Uuid
+  role         Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model RefreshToken {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  tokenHash     String   @map("token_hash")
+  expiresAt     DateTime @map("expires_at")
+  revokedAt     DateTime? @map("revoked_at")
+  replacedById  String?  @map("replaced_by_id") @db.Uuid
+  userAgent     String?  @map("user_agent")
+  ipAddress     String?  @map("ip_address")
+  createdAt     DateTime @default(now()) @map("created_at")
+  user          User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, revokedAt])
+  @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  tokenHash   String   @unique @map("token_hash")
+  expiresAt   DateTime @map("expires_at")
+  usedAt      DateTime? @map("used_at")
+  requestedIp String?  @map("requested_ip")
+  createdAt   DateTime @default(now()) @map("created_at")
+  user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, expiresAt])
+  @@map("password_reset_tokens")
+}
+
+model TechnicianProfile {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @unique @map("user_id") @db.Uuid
+  employeeCode    String?  @unique @map("employee_code")
+  skills          String[] @default([])
+  isAvailable     Boolean  @default(true) @map("is_available")
+  approvedById    String?  @map("approved_by_id") @db.Uuid
+  approvedAt      DateTime? @map("approved_at")
+  rejectionReason String?  @map("rejection_reason")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  user            User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  approvalLogs    TechnicianApprovalLog[]
+  @@map("technician_profiles")
+}
+
+model TechnicianApprovalLog {
+  id                  String @id @default(uuid()) @db.Uuid
+  technicianProfileId String @map("technician_profile_id") @db.Uuid
+  reviewerId          String @map("reviewer_id") @db.Uuid
+  decision            TechnicianApprovalDecision
+  note                String?
+  createdAt           DateTime @default(now()) @map("created_at")
+  technicianProfile   TechnicianProfile @relation(fields: [technicianProfileId], references: [id], onDelete: Cascade)
+  reviewer            User @relation("ApprovalReviewer", fields: [reviewerId], references: [id])
+  @@index([technicianProfileId, createdAt])
+  @@map("technician_approval_logs")
+}
+
+model Client {
+  id        String @id @default(uuid()) @db.Uuid
+  code      String @unique
+  name      String
+  isActive  Boolean @default(true) @map("is_active")
+  contactMetadata Json? @map("contact_metadata")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  sites     Site[]
+  @@map("clients")
+}
+
+model Site {
+  id                    String @id @default(uuid()) @db.Uuid
+  clientId              String @map("client_id") @db.Uuid
+  code                  String @unique
+  name                  String
+  address               String
+  latitude              Float?
+  longitude             Float?
+  allowedCheckinRadius  Int? @map("allowed_checkin_radius")
+  timezone              String @default("Asia/Makassar")
+  isActive              Boolean @default(true) @map("is_active")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+  client                Client @relation(fields: [clientId], references: [id])
+  qrCodes               QrCode[]
+  tickets               Ticket[]
+  @@index([clientId, isActive])
+  @@map("sites")
+}
+
+model QrCode {
+  id          String @id @default(uuid()) @db.Uuid
+  siteId      String @map("site_id") @db.Uuid
+  token       String @unique
+  isActive    Boolean @default(true) @map("is_active")
+  expiresAt   DateTime? @map("expires_at")
+  createdById String? @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  site        Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  createdBy   User? @relation("QrCreatedBy", fields: [createdById], references: [id])
+  @@index([siteId, isActive])
+  @@map("qr_codes")
+}
+
+model TicketCategory {
+  id           String @id @default(uuid()) @db.Uuid
+  code         String @unique
+  name         String
+  displayOrder Int @default(0) @map("display_order")
+  isActive     Boolean @default(true) @map("is_active")
+  tickets      Ticket[]
+  @@map("ticket_categories")
+}
+
+model TicketPriority {
+  id             String @id @default(uuid()) @db.Uuid
+  code           String @unique
+  label          String
+  severityOrder  Int @map("severity_order")
+  isActive       Boolean @default(true) @map("is_active")
+  tickets        Ticket[]
+  policies       SlaPolicyVersion[]
+  @@map("ticket_priorities")
+}
+
+model SlaPolicyVersion {
+  id                      String @id @default(uuid()) @db.Uuid
+  version                 Int
+  priorityId              String @map("priority_id") @db.Uuid
+  respondTargetSeconds    Int @map("respond_target_seconds")
+  workTargetSeconds       Int @map("work_target_seconds")
+  warningThresholdPercent Int @default(75) @map("warning_threshold_percent")
+  calculationMode         String @default("CALENDAR_24_7") @map("calculation_mode")
+  effectiveFrom           DateTime @map("effective_from")
+  createdById             String? @map("created_by_id") @db.Uuid
+  createdAt               DateTime @default(now()) @map("created_at")
+  priority                TicketPriority @relation(fields: [priorityId], references: [id])
+  createdBy               User? @relation("PolicyCreatedBy", fields: [createdById], references: [id])
+  slaInstances            SlaInstance[]
+  @@unique([priorityId, version])
+  @@index([priorityId, effectiveFrom])
+  @@map("sla_policy_versions")
+}
+
+model Ticket {
+  id                     String @id @default(uuid()) @db.Uuid
+  ticketCode             String @unique @map("ticket_code")
+  siteId                 String @map("site_id") @db.Uuid
+  reporterName           String @map("reporter_name")
+  picName                String @map("pic_name")
+  contactPhoneNormalized String @map("contact_phone_normalized")
+  locationDetail         String? @map("location_detail")
+  categoryId             String? @map("category_id") @db.Uuid
+  priorityId             String @map("priority_id") @db.Uuid
+  description            String
+  status                 TicketStatus @default(NEW)
+  serviceCycleNo         Int @default(1) @map("service_cycle_no")
+  firstRespondedAt       DateTime? @map("first_responded_at")
+  resolvedAt             DateTime? @map("resolved_at")
+  closedAt               DateTime? @map("closed_at")
+  scheduledAt            DateTime? @map("scheduled_at")
+  pendingReason          String?   @map("pending_reason")
+  version                Int @default(1)
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+  site                   Site @relation(fields: [siteId], references: [id])
+  category               TicketCategory? @relation(fields: [categoryId], references: [id])
+  priority               TicketPriority @relation(fields: [priorityId], references: [id])
+  responses              TicketResponse[]
+  statusLogs             TicketStatusLog[]
+  comments               TicketComment[]
+  assignments            TicketAssignment[]
+  slaInstances           SlaInstance[]
+  mediaLinks             MediaLink[]
+  @@index([status, createdAt])
+  @@index([siteId, createdAt])
+  @@index([contactPhoneNormalized])
+  @@map("tickets")
+}
+
+model TicketResponse {
+  id          String @id @default(uuid()) @db.Uuid
+  ticketId    String @map("ticket_id") @db.Uuid
+  type        TicketResponseType
+  message     String
+  createdById String @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  editedAt    DateTime? @map("edited_at")
+  ticket      Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  createdBy   User @relation("ResponseCreatedBy", fields: [createdById], references: [id])
+  @@index([ticketId, createdAt])
+  @@map("ticket_responses")
+}
+
+model TicketStatusLog {
+  id         String @id @default(uuid()) @db.Uuid
+  ticketId   String @map("ticket_id") @db.Uuid
+  fromStatus TicketStatus? @map("from_status")
+  toStatus   TicketStatus @map("to_status")
+  actorId    String? @map("actor_id") @db.Uuid
+  reason     String?
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+  ticket     Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  actor      User? @relation("StatusActor", fields: [actorId], references: [id])
+  @@index([ticketId, createdAt])
+  @@map("ticket_status_logs")
+}
+
+model TicketComment {
+  id          String @id @default(uuid()) @db.Uuid
+  ticketId    String @map("ticket_id") @db.Uuid
+  message     String
+  isPublic    Boolean @default(false) @map("is_public")
+  createdById String @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  ticket      Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  createdBy   User @relation("CommentCreatedBy", fields: [createdById], references: [id])
+  @@index([ticketId, createdAt])
+  @@map("ticket_comments")
+}
+
+model TicketAssignment {
+  id             String @id @default(uuid()) @db.Uuid
+  ticketId       String @map("ticket_id") @db.Uuid
+  serviceCycleNo Int @map("service_cycle_no")
+  assignedById   String @map("assigned_by_id") @db.Uuid
+  assignedAt     DateTime @default(now()) @map("assigned_at")
+  status         AssignmentStatus @default(ACTIVE)
+  note           String?
+  endedAt        DateTime? @map("ended_at")
+  ticket         Ticket @relation(fields: [ticketId], references: [id])
+  assignedBy     User @relation("AssignedBy", fields: [assignedById], references: [id])
+  members        AssignmentMember[]
+  @@index([ticketId, serviceCycleNo])
+  @@map("ticket_assignments")
+}
+
+model AssignmentMember {
+  id                    String @id @default(uuid()) @db.Uuid
+  assignmentId          String @map("assignment_id") @db.Uuid
+  technicianId          String @map("technician_id") @db.Uuid
+  isLead                Boolean @default(false) @map("is_lead")
+  requiredForResolution Boolean @default(true) @map("required_for_resolution")
+  status                AssignmentMemberStatus @default(ASSIGNED)
+  assignedAt            DateTime @default(now()) @map("assigned_at")
+  acceptedAt            DateTime? @map("accepted_at")
+  rejectedAt            DateTime? @map("rejected_at")
+  rejectionReason       String? @map("rejection_reason")
+  firstCheckinAt        DateTime? @map("first_checkin_at")
+  workStartedAt         DateTime? @map("work_started_at")
+  completedAt           DateTime? @map("completed_at")
+  endedAt               DateTime? @map("ended_at")
+  completionSummary     String? @map("completion_summary")
+  assignment            TicketAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  technician            User @relation("TechnicianAssignments", fields: [technicianId], references: [id])
+  checkins              Checkin[]
+  workCompletions       WorkCompletion[]
+  slaInstances          SlaInstance[]
+  mediaLinks            MediaLink[]
+  @@unique([assignmentId, technicianId])
+  @@index([technicianId, status])
+  @@map("assignment_members")
+}
+
+model Checkin {
+  id                     String @id @default(uuid()) @db.Uuid
+  assignmentMemberId     String @map("assignment_member_id") @db.Uuid
+  latitude               Float
+  longitude              Float
+  accuracyMeters         Float @map("accuracy_meters")
+  deviceCapturedAt       DateTime? @map("device_captured_at")
+  serverReceivedAt       DateTime @default(now()) @map("server_received_at")
+  addressSnapshot        String? @map("address_snapshot")
+  distanceFromSiteMeters Float? @map("distance_from_site_meters")
+  source                 String @default("BROWSER")
+  notes                  String?
+  assignmentMember       AssignmentMember @relation(fields: [assignmentMemberId], references: [id], onDelete: Cascade)
+  mediaLinks             MediaLink[]
+  @@index([assignmentMemberId, serverReceivedAt])
+  @@map("checkins")
+}
+
+model WorkCompletion {
+  id                 String @id @default(uuid()) @db.Uuid
+  assignmentMemberId String @map("assignment_member_id") @db.Uuid
+  summary            String
+  completedAt        DateTime @default(now()) @map("completed_at")
+  latitude           Float?
+  longitude          Float?
+  submittedById      String @map("submitted_by_id") @db.Uuid
+  assignmentMember   AssignmentMember @relation(fields: [assignmentMemberId], references: [id], onDelete: Cascade)
+  submittedBy        User @relation("CompletionSubmittedBy", fields: [submittedById], references: [id])
+  mediaLinks         MediaLink[]
+  @@index([assignmentMemberId, completedAt])
+  @@map("work_completions")
+}
+
+model MediaAsset {
+  id               String @id @default(uuid()) @db.Uuid
+  provider         String @default("LOCAL")
+  providerPublicId String @unique @map("provider_public_id")
+  originalName     String @map("original_name")
+  resourceType     String @map("resource_type")
+  mimeType         String @map("mime_type")
+  extension        String
+  sizeBytes        Int @map("size_bytes")
+  width            Int?
+  height           Int?
+  durationSeconds  Int? @map("duration_seconds")
+  checksum         String?
+  access           MediaAccess @default(INTERNAL)
+  uploadedById     String? @map("uploaded_by_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at")
+  uploadedBy       User? @relation("MediaUploadedBy", fields: [uploadedById], references: [id])
+  links            MediaLink[]
+  @@map("media_assets")
+}
+
+model MediaLink {
+  id                 String @id @default(uuid()) @db.Uuid
+  mediaAssetId       String @map("media_asset_id") @db.Uuid
+  context            MediaContext
+  ticketId           String? @map("ticket_id") @db.Uuid
+  assignmentMemberId String? @map("assignment_member_id") @db.Uuid
+  checkinId          String? @map("checkin_id") @db.Uuid
+  workCompletionId   String? @map("work_completion_id") @db.Uuid
+  createdAt          DateTime @default(now()) @map("created_at")
+  mediaAsset         MediaAsset @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+  ticket             Ticket? @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  assignmentMember   AssignmentMember? @relation(fields: [assignmentMemberId], references: [id], onDelete: Cascade)
+  checkin            Checkin? @relation(fields: [checkinId], references: [id], onDelete: Cascade)
+  workCompletion     WorkCompletion? @relation(fields: [workCompletionId], references: [id], onDelete: Cascade)
+  @@index([ticketId])
+  @@index([assignmentMemberId])
+  @@map("media_links")
+}
+
+model SlaInstance {
+  id                      String @id @default(uuid()) @db.Uuid
+  slaType                 SlaType @map("sla_type")
+  ticketId                String? @map("ticket_id") @db.Uuid
+  assignmentMemberId      String? @map("assignment_member_id") @db.Uuid
+  serviceCycleNo          Int @map("service_cycle_no")
+  policyVersionId         String @map("policy_version_id") @db.Uuid
+  prioritySnapshot        String @map("priority_snapshot")
+  targetSeconds           Int @map("target_seconds")
+  warningThresholdPercent Int @map("warning_threshold_percent")
+  startedAt               DateTime @map("started_at")
+  warningAt               DateTime @map("warning_at")
+  dueAt                   DateTime @map("due_at")
+  completedAt             DateTime? @map("completed_at")
+  endedAt                 DateTime? @map("ended_at")
+  status                  SlaStatus @default(OPEN)
+  outcome                 SlaOutcome?
+  breachedAt              DateTime? @map("breached_at")
+  breachSeconds           Int @default(0) @map("breach_seconds")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+  ticket                  Ticket? @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  assignmentMember        AssignmentMember? @relation(fields: [assignmentMemberId], references: [id], onDelete: Cascade)
+  policyVersion           SlaPolicyVersion @relation(fields: [policyVersionId], references: [id])
+  events                  SlaEvent[]
+  @@unique([slaType, ticketId, serviceCycleNo])
+  @@unique([slaType, assignmentMemberId])
+  @@index([status, dueAt])
+  @@map("sla_instances")
+}
+
+model SlaEvent {
+  id            String @id @default(uuid()) @db.Uuid
+  slaInstanceId String @map("sla_instance_id") @db.Uuid
+  type          SlaEventType
+  metadata      Json?
+  createdAt     DateTime @default(now()) @map("created_at")
+  slaInstance   SlaInstance @relation(fields: [slaInstanceId], references: [id], onDelete: Cascade)
+  @@index([slaInstanceId, createdAt])
+  @@map("sla_events")
+}
+
+model Notification {
+  id              String @id @default(uuid()) @db.Uuid
+  recipientUserId String @map("recipient_user_id") @db.Uuid
+  type            NotificationType
+  title           String
+  body            String
+  relatedType     String? @map("related_type")
+  relatedId       String? @map("related_id")
+  uniqueEventKey  String @unique @map("unique_event_key")
+  readAt          DateTime? @map("read_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  recipient       User @relation(fields: [recipientUserId], references: [id], onDelete: Cascade)
+  @@index([recipientUserId, readAt, createdAt])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id           String @id @default(uuid()) @db.Uuid
+  actorUserId  String? @map("actor_user_id") @db.Uuid
+  action       String
+  resourceType String @map("resource_type")
+  resourceId   String? @map("resource_id")
+  before       Json?
+  after        Json?
+  ipAddress    String? @map("ip_address")
+  userAgent    String? @map("user_agent")
+  requestId    String? @map("request_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  actor        User? @relation("AuditActor", fields: [actorUserId], references: [id])
+  @@index([resourceType, resourceId, createdAt])
+  @@map("audit_logs")
+}
+
+model IdempotencyKey {
+  id          String @id @default(uuid()) @db.Uuid
+  key         String @unique
+  scope       String
+  responseId  String? @map("response_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  expiresAt   DateTime @map("expires_at")
+  @@index([scope, expiresAt])
+  @@map("idempotency_keys")
+}

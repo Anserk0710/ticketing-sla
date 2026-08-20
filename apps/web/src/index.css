@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * ─────────────────────────────────────────────────────────────
+ *  DESIGN TOKENS  –  5-colour palette
+ *
+ *  #022b3a  → Deep navy-teal  (charcoal-950)  – headings / sidebar
+ *  #1f7a8c  → Brand teal      (alice-blue-600) – accent / buttons
+ *  #bfdbf7  → Sky blue        (lavender-grey-300) – light surface
+ *  #e1e5f2  → Muted slate     (lavender-grey-200) – borders / dividers
+ *  #ffffff  → Pure white      – page & card background
+ * ─────────────────────────────────────────────────────────────
+ */
+
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+
+  /*
+   * Default text colour = #022b3a (maximum contrast on white).
+   * This means ALL text is readable by default without extra classes.
+   */
+  color: #022b3a;
+
+  /* Page background = pure white */
+  background: #ffffff;
+
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: #ffffff; color: #022b3a; }
+button, input, textarea, select { font: inherit; }
+
+@layer base {
+  /*
+   * Global heading defaults — always deepest navy for max contrast.
+   * Avoids needing text-charcoal-950 on every single heading element.
+   */
+  h1, h2, h3, h4, h5, h6 {
+    color: #022b3a;        /* charcoal-950 */
+    font-weight: 700;
+    line-height: 1.25;
+  }
+
+  /* Paragraph / body copy: slightly softer but still very dark */
+  p, li, td, th, label, span, dd, dt {
+    color: #072030;        /* charcoal-900 — dark, readable on white */
+  }
+
+  /* Links: brand teal */
+  a {
+    color: #1f7a8c;        /* alice-blue-600 */
+    text-decoration: none;
+    transition: color 0.15s;
+  }
+  a:hover {
+    color: #1a6070;        /* alice-blue-700 */
+  }
+}
+
+@layer components {
+  /* Focus ring: brand teal */
+  .focus-ring {
+    @apply focus:outline-none focus:ring-2 focus:ring-alice-blue-600 focus:ring-offset-2;
+  }
+
+  /*
+   * page-title: deepest navy — highest contrast heading.
+   * Mapped to #022b3a (charcoal-950).
+   */
+  .page-title {
+    @apply text-2xl font-bold tracking-tight text-charcoal-950 md:text-3xl;
+    color: #022b3a;
+  }
+
+  /*
+   * muted: secondary / descriptive text.
+   * Uses lavender-grey-600 (#3d6288) — WCAG AA compliant on white (≈5.4:1 contrast).
+   */
+  .muted {
+    @apply text-sm;
+    color: #3d6288;        /* lavender-grey-600 */
+  }
+}

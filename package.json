@@ -1,0 +1,34 @@
+{
+  "name": "ticketing-sla",
+  "version": "1.0.5",
+  "private": true,
+  "description": "Sistem Ticketing, Field Service, SLA Respond dan SLA Pengerjaan",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "preflight": "node scripts/validate-workspaces.mjs",
+    "dev": "concurrently -n api,web -c auto \"npm run dev -w @ticketing/api\" \"npm run dev -w @ticketing/web\"",
+    "build": "npm run build -w @ticketing/contracts && npm run build -w @ticketing/api && npm run build -w @ticketing/web",
+    "test": "npm run test -w @ticketing/api && npm run test -w @ticketing/web",
+    "lint": "npm run lint -w @ticketing/api && npm run lint -w @ticketing/web",
+    "format": "prettier --write .",
+    "db:generate": "npm run prisma:generate -w @ticketing/api",
+    "db:migrate": "npm run prisma:migrate -w @ticketing/api",
+    "db:seed": "npm run prisma:seed -w @ticketing/api",
+    "db:studio": "npm run prisma:studio -w @ticketing/api",
+    "db:push": "npm run prisma:push -w @ticketing/api"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.22.0",
+    "concurrently": "^9.1.2",
+    "eslint": "^9.22.0",
+    "prettier": "^3.5.3",
+    "typescript": "5.8.3",
+    "typescript-eslint": "^8.26.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
