@@ -61,13 +61,40 @@ docker compose run --rm api node prisma/seed.js
 
 Akses:
 
-- Web: `http://localhost:8080`
-- API: `http://localhost:3000/api/v1`
-- Swagger: `http://localhost:3000/docs`
-- Health live: `http://localhost:3000/api/v1/health/live`
-- Health ready: `http://localhost:3000/api/v1/health/ready`
+- Web demo: `https://ticketing-demo.test`
+- API demo: `https://ticketing-demo.test/api/v1`
+- Swagger demo: `https://ticketing-demo.test/docs`
+- Health live: `https://ticketing-demo.test/api/v1/health/live`
+- Health ready: `https://ticketing-demo.test/api/v1/health/ready`
 
-Jika port host `3000` atau `8080` sudah dipakai, ubah `API_HOST_PORT` atau `WEB_HOST_PORT` di `.env`, lalu jalankan kembali `docker compose up -d --force-recreate`.
+Jika port host `80` atau `443` sudah dipakai, ubah `WEB_HTTP_PORT` atau `WEB_HOST_PORT` di `.env`, lalu jalankan kembali `docker compose up -d --force-recreate`.
+
+### Akses LAN dengan hostname
+
+Aplikasi tidak lagi dikonfigurasi memakai URL IP seperti `https://<IP-server>`. Gunakan hostname lokal:
+
+- Demo: `https://ticketing-demo.test`
+- Development: `https://ticketing-dev.test`
+
+Buat record pada DNS lokal/router:
+
+```text
+ticketing-demo.test  <IP server>
+ticketing-dev.test   <IP server>
+```
+
+Jika IP server berubah, update record DNS lokal saja. Tidak perlu mengubah source, Docker image, atau rebuild aplikasi. Jika router/server DNS mendukung DHCP reservation, pasang reservation untuk perangkat server agar IP lebih stabil.
+
+Konfigurasi terkait ada di `.env.example`, `.env.demo`, dan `.env.dev`:
+
+```env
+PUBLIC_WEB_URL=https://ticketing-demo.test,https://localhost
+VITE_API_URL=/api/v1
+TLS_CERT_FILE=./runtime/certs/demo/server-cert.pem
+TLS_KEY_FILE=./runtime/certs/demo/server-key.pem
+```
+
+`VITE_API_URL=/api/v1` sengaja memakai path relatif agar frontend memanggil API pada hostname yang sama dengan halaman yang sedang dibuka. Untuk HTTPS tanpa warning di banyak smartphone/PC, gunakan sertifikat internal/CA lokal yang dipercaya perangkat dan pastikan SAN sertifikat berisi hostname yang dipakai.
 
 Untuk melihat penyebab service tidak healthy:
 
@@ -120,7 +147,7 @@ Akses lokal:
 
 - Teknisi menunggu approval: `pending@example.com` / `Tech123!`
 - QR demo: `DEMO-SITE-QR`
-- Form pengaduan Docker: `http://localhost:8080/complaint/DEMO-SITE-QR`
+- Form pengaduan Docker: `https://ticketing-demo.test/complaint/DEMO-SITE-QR`
 - Ticket contoh: `TKT-DEMO01`, nomor tracking `628171111111`
 
 ## Perintah penting

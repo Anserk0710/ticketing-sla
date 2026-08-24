@@ -240,14 +240,6 @@ async function main() {
     const assignment = await prisma.ticketAssignment.create({ data: { ticketId: ticket.id, serviceCycleNo: 1, assignedById: head.id, assignedAt, note: 'Periksa koneksi router dan ISP.' } });
     for (const [index, technician] of [tech1, tech2].entries()) {
       const member = await prisma.assignmentMember.create({ data: { assignmentId: assignment.id, technicianId: technician.id, isLead: index === 0, assignedAt, status: AssignmentMemberStatus.ASSIGNED } });
-      await prisma.slaInstance.create({
-        data: {
-          slaType: SlaType.WORK, assignmentMemberId: member.id, serviceCycleNo: 1, policyVersionId: policy.id,
-          prioritySnapshot: 'HIGH', targetSeconds: policy.workTargetSeconds, warningThresholdPercent: 75,
-          startedAt: assignedAt, warningAt: new Date(assignedAt.getTime() + policy.workTargetSeconds * 0.75 * 1000),
-          dueAt: new Date(assignedAt.getTime() + policy.workTargetSeconds * 1000), status: SlaStatus.OPEN
-        }
-      });
       await prisma.notification.upsert({
         where: { uniqueEventKey: `assignment-new-${member.id}` }, update: {},
         create: { recipientUserId: technician.id, type: 'ASSIGNMENT_NEW', title: 'Assignment baru', body: `Anda ditugaskan pada ${demoCode}.`, relatedType: 'assignment_member', relatedId: member.id, uniqueEventKey: `assignment-new-${member.id}` }

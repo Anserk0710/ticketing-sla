@@ -1,6 +1,69 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@theme {
+  --font-sans: Inter, ui-sans-serif, system-ui;
+  --shadow-soft: 0 12px 36px rgba(2, 43, 58, 0.08);
+
+  --color-alice-blue-50: #f0f9fb;
+  --color-alice-blue-100: #d9eff4;
+  --color-alice-blue-200: #b3dfe9;
+  --color-alice-blue-300: #7dc8d8;
+  --color-alice-blue-400: #44aabf;
+  --color-alice-blue-500: #2a90a6;
+  --color-alice-blue-600: #1f7a8c;
+  --color-alice-blue-700: #1a6070;
+  --color-alice-blue-800: #184f5c;
+  --color-alice-blue-900: #17424d;
+  --color-alice-blue-950: #0d2a33;
+
+  --color-powder-blue-50: #f0f7fa;
+  --color-powder-blue-100: #d9edf5;
+  --color-powder-blue-200: #b3daeb;
+  --color-powder-blue-300: #7dbfdb;
+  --color-powder-blue-400: #3f9dc0;
+  --color-powder-blue-500: #2480a3;
+  --color-powder-blue-600: #1d6686;
+  --color-powder-blue-700: #1a526b;
+  --color-powder-blue-800: #194559;
+  --color-powder-blue-900: #173a4c;
+  --color-powder-blue-950: #022b3a;
+
+  --color-lavender-grey-50: #f8fafd;
+  --color-lavender-grey-100: #f1f4fb;
+  --color-lavender-grey-200: #e1e5f2;
+  --color-lavender-grey-300: #bfdbf7;
+  --color-lavender-grey-400: #97b5dc;
+  --color-lavender-grey-500: #5a7ea8;
+  --color-lavender-grey-600: #3d6288;
+  --color-lavender-grey-700: #2a4d72;
+  --color-lavender-grey-800: #1d3a5c;
+  --color-lavender-grey-900: #122845;
+  --color-lavender-grey-950: #0a1a30;
+
+  --color-charcoal-50: #f0f5f7;
+  --color-charcoal-100: #dce6ea;
+  --color-charcoal-200: #b9cdd5;
+  --color-charcoal-300: #8daebf;
+  --color-charcoal-400: #608fa9;
+  --color-charcoal-500: #3d7290;
+  --color-charcoal-600: #2d5c75;
+  --color-charcoal-700: #1f4559;
+  --color-charcoal-800: #133040;
+  --color-charcoal-900: #072030;
+  --color-charcoal-950: #022b3a;
+
+  --color-iron-grey-50: #ffffff;
+  --color-iron-grey-100: #f5f8fd;
+  --color-iron-grey-200: #e1e5f2;
+  --color-iron-grey-300: #bfdbf7;
+  --color-iron-grey-400: #97b8e8;
+  --color-iron-grey-500: #6d95cf;
+  --color-iron-grey-600: #5076b5;
+  --color-iron-grey-700: #3d5d96;
+  --color-iron-grey-800: #33507c;
+  --color-iron-grey-900: #2b4367;
+  --color-iron-grey-950: #1a2a45;
+}
 
 /*
  * ─────────────────────────────────────────────────────────────
@@ -17,14 +80,27 @@
 :root {
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
 
-  /*
-   * Default text colour = #022b3a (maximum contrast on white).
-   * This means ALL text is readable by default without extra classes.
-   */
   color: #022b3a;
+  background: #e1e5f2;
 
-  /* Page background = pure white */
-  background: #ffffff;
+  --background: #e1e5f2;
+  --surface: #ffffff;
+  --primary: #1f7a8c;
+  --primary-foreground: #ffffff;
+  --foreground: #022b3a;
+  --accent: #bfdbf7;
+
+  --neo-shadow-raised:
+    14px 14px 32px rgba(2, 43, 58, 0.11),
+    -12px -12px 28px rgba(255, 255, 255, 0.80);
+
+  --neo-shadow-soft:
+    4px 4px 10px rgba(2, 43, 58, 0.1),
+    -4px -4px 10px rgba(255, 255, 255, 0.82);
+
+  --neo-shadow-inset:
+    inset 3px 3px 7px rgba(2, 43, 58, 0.09),
+    inset -3px -3px 7px rgba(255, 255, 255, 0.72);
 
   font-synthesis: none;
   -webkit-font-smoothing: antialiased;
@@ -32,7 +108,19 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; min-height: 100vh; background: #ffffff; color: #022b3a; }
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background:
+    linear-gradient(
+      145deg,
+      #edf0f7 0%,
+      #e1e5f2 55%,
+      #dce2ef 100%
+    );
+  color: #022b3a;
+}
 button, input, textarea, select { font: inherit; }
 
 @layer base {
@@ -63,6 +151,93 @@ button, input, textarea, select { font: inherit; }
 }
 
 @layer components {
+  .neo-raised {
+    background: #e1e5f2;
+    border: 1px solid rgba(255, 255, 255, 0.55);
+    box-shadow: var(--neo-shadow-raised);
+  }
+
+  .neo-soft {
+    background: #e1e5f2;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    box-shadow: var(--neo-shadow-soft);
+  }
+
+  .neo-white {
+    background: rgba(255, 255, 255, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.85);
+    box-shadow: var(--neo-shadow-raised);
+  }
+
+  .neo-inset {
+    background: #e1e5f2;
+    border: 1px solid rgba(2, 43, 58, 0.04);
+    box-shadow: var(--neo-shadow-inset);
+  }
+
+  .neo-input {
+    background: rgba(255, 255, 255, 0.42) !important;
+    border: 1px solid rgba(255, 255, 255, 0.68) !important;
+    box-shadow:
+      inset 2px 2px 5px rgba(2, 43, 58, 0.06),
+      inset -2px -2px 5px rgba(255, 255, 255, 0.75) !important;
+    color: #022b3a !important;
+  }
+
+  .neo-input::placeholder {
+    color: rgba(2, 43, 58, 0.48);
+  }
+
+  .neo-input:focus {
+    border-color: rgba(31, 122, 140, 0.5) !important;
+    outline: none !important;
+    box-shadow:
+      0 0 0 3px rgba(31, 122, 140, 0.10),
+      inset 2px 2px 5px rgba(2, 43, 58, 0.06) !important;
+  }
+
+  .neo-btn-cta {
+    min-height: 52px;
+    padding: 0 24px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #238a9e, #1f7a8c);
+    box-shadow:
+      0 10px 24px rgba(31, 122, 140, 0.22),
+      inset 0 1px rgba(255, 255, 255, 0.20);
+    color: #ffffff;
+    font-weight: 600;
+    transition: all 0.2s ease;
+  }
+
+  .neo-btn-cta:hover {
+    filter: brightness(1.05);
+    transform: translateY(-1px);
+  }
+
+  .neo-btn-cta:active {
+    transform: translateY(0);
+    box-shadow:
+      0 4px 10px rgba(31, 122, 140, 0.22),
+      inset 0 1px rgba(255, 255, 255, 0.20);
+  }
+
+  .neo-icon-button {
+    background: #e1e5f2;
+    box-shadow: var(--neo-shadow-soft);
+    transition:
+      transform 160ms ease,
+      box-shadow 160ms ease;
+  }
+
+  .neo-icon-button:hover {
+    transform: translateY(-1px);
+  }
+
+  .neo-icon-button:active {
+    transform: translateY(0);
+    box-shadow: var(--neo-shadow-inset);
+  }
+
   /* Focus ring: brand teal */
   .focus-ring {
     @apply focus:outline-none focus:ring-2 focus:ring-alice-blue-600 focus:ring-offset-2;

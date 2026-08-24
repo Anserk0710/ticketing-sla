@@ -10,7 +10,7 @@ import { ReportQueryDto } from './reports.dto';
 
 @Injectable()
 export class ReportsService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService) { }
 
   async tickets(query: ReportQueryDto, paginate = true) {
     const where = this.ticketWhere(query);
@@ -58,8 +58,10 @@ export class ReportsService {
         technicianId: member.technician.id, role: member.isLead ? 'LEAD' : 'MEMBER', assignedBy: member.assignment.assignedBy.displayName,
         assignedAt: member.assignedAt, acceptedAt: member.acceptedAt, rejectedAt: member.rejectedAt, firstCheckinAt: member.firstCheckinAt,
         workStartedAt: member.workStartedAt, completedAt: member.completedAt, assignmentElapsedSeconds: assignmentElapsed,
-        onsiteWorkElapsedSeconds: onsiteElapsed, slaTargetSeconds: sla?.targetSeconds, slaDueAt: sla?.dueAt,
-        slaOutcome: runtime?.outcome ?? runtime?.status, breachSeconds: runtime?.breachSeconds ?? 0,
+        onsiteWorkElapsedSeconds: onsiteElapsed, slaTargetSeconds: sla?.targetSeconds ?? null,
+        slaDueAt: sla?.dueAt ?? null,
+        slaOutcome: runtime ? (runtime.outcome ?? runtime.status) : null,
+        breachSeconds: runtime?.breachSeconds ?? 0,
         completionSummary: member.completionSummary, memberStatus: member.status, serviceCycleNo: member.assignment.serviceCycleNo
       };
     });
@@ -73,7 +75,7 @@ export class ReportsService {
     const technicians = technicianReport.data;
     const respondEligible = tickets.filter((row: any) => row.slaRespondStatus && !['TERMINATED_REJECTED', 'CANCELLED'].includes(String(row.slaRespondStatus)));
     const workEligible = technicians.filter((row: any) => !['REASSIGNED', 'REMOVED', 'CANCELLED'].includes(String(row.slaOutcome)) && row.completedAt);
-    
+
     const now = new Date().getTime();
     let totalRespondTime = 0;
     tickets.forEach((t: any) => {
@@ -89,13 +91,13 @@ export class ReportsService {
     let totalTargetResolutionTime = 0;
     let resolutionCount = 0;
     tickets.forEach((t: any) => {
-       if (t.assignedAt) {
-          const start = t.assignedAt instanceof Date ? t.assignedAt.getTime() : new Date(t.assignedAt).getTime();
-          const end = t.resolvedAt ? (t.resolvedAt instanceof Date ? t.resolvedAt.getTime() : new Date(t.resolvedAt).getTime()) : now;
-          totalResolutionTime += (end - start);
-          totalTargetResolutionTime += (t.slaWorkTargetSeconds ?? 0) * 1000;
-          resolutionCount++;
-       }
+      if (t.assignedAt) {
+        const start = t.assignedAt instanceof Date ? t.assignedAt.getTime() : new Date(t.assignedAt).getTime();
+        const end = t.resolvedAt ? (t.resolvedAt instanceof Date ? t.resolvedAt.getTime() : new Date(t.resolvedAt).getTime()) : now;
+        totalResolutionTime += (end - start);
+        totalTargetResolutionTime += (t.slaWorkTargetSeconds ?? 0) * 1000;
+        resolutionCount++;
+      }
     });
     const mttrResolutionHours = resolutionCount ? (totalResolutionTime / resolutionCount) / 3600000 : 0;
     const averageTargetResolutionHours = resolutionCount ? (totalTargetResolutionTime / resolutionCount) / 3600000 : 0;
@@ -179,26 +181,69 @@ export class ReportsService {
     const respond = ticket.slaInstances[0];
     const respondRuntime = respond ? evaluateSla(respond) : null;
     const members = ticket.assignments.flatMap((assignment: any) => assignment.members);
-    const activeRequired = members.filter((member: any) => member.requiredForResolution && !member.endedAt);
+
+    // Only count Work SLA for required members who have already checked in.
+    // Members who are assigned but have not yet checked in are NOT_STARTED
+    // and must not contribute to the aggregate until work actually begins.
+    const activeRequired = members.filter(
+      (member: any) => member.requiredForResolution && !member.endedAt && member.firstCheckinAt,
+    );
+
     const workSlas = activeRequired.map((member: any) => member.slaInstances[0]).filter(Boolean);
     const workRuntimes = workSlas.map((sla: any) => evaluateSla(sla));
-    const aggregate = workRuntimes.some((r: any) => r.status === SlaStatus.BREACHED || r.outcome === SlaOutcome.COMPLETED_BREACHED) ? 'BREACHED'
-      : workRuntimes.some((r: any) => r.status === SlaStatus.WARNING) ? 'WARNING'
-      : workRuntimes.length && workRuntimes.every((r: any) => r.outcome === SlaOutcome.MET) ? 'MET' : workRuntimes.length ? 'ON_TRACK' : 'NOT_STARTED';
+
+    const aggregate =
+      workRuntimes.some((r: any) => r.status === SlaStatus.BREACHED || r.outcome === SlaOutcome.COMPLETED_BREACHED) ? 'BREACHED'
+        : workRuntimes.some((r: any) => r.status === SlaStatus.WARNING) ? 'WARNING'
+          : workRuntimes.length && workRuntimes.every((r: any) => r.outcome === SlaOutcome.MET) ? 'MET'
+            : workRuntimes.length ? 'ON_TRACK'
+              : 'NOT_STARTED';
+
     return {
-      ticketId: ticket.id, ticketCode: ticket.ticketCode, client: ticket.site.client.name, site: ticket.site.name,
-      reporter: ticket.reporterName, pic: ticket.picName, category: ticket.category?.name, priority: ticket.priority.code, status: ticket.status,
-      createdAt: ticket.createdAt, firstRespondedAt: ticket.firstRespondedAt,
-      assignedAt: ticket.assignments[0]?.assignedAt, firstCheckinAt: members.map((m: any) => m.firstCheckinAt).filter(Boolean).sort()[0] ?? null,
-      resolvedAt: ticket.resolvedAt, closedAt: ticket.closedAt, respondedBy: ticket.responses[0]?.createdBy.displayName,
-      assignedBy: ticket.assignments.at(-1)?.assignedBy.displayName, leadTechnician: members.find((m: any) => m.isLead && !m.endedAt)?.technician.displayName,
-      technicians: members.map((m: any) => m.technician.displayName).join(', '), slaRespondTargetSeconds: respond?.targetSeconds,
-      slaRespondDueAt: respond?.dueAt, slaRespondElapsedSeconds: respondRuntime?.elapsedSeconds, slaRespondStatus: respondRuntime?.status,
-      slaRespondOutcome: respondRuntime?.outcome, slaRespondBreachSeconds: respondRuntime?.breachSeconds ?? 0,
-      slaWorkTargetSeconds: workSlas[0]?.targetSeconds ?? 0,
-      slaWorkAggregate: aggregate, workMetCount: workRuntimes.filter((r: any) => r.outcome === SlaOutcome.MET).length,
-      workBreachedCount: workRuntimes.filter((r: any) => r.status === SlaStatus.BREACHED || r.outcome === SlaOutcome.COMPLETED_BREACHED).length,
-      workActiveCount: workRuntimes.filter((r: any) => !r.outcome).length, serviceCycleNo: ticket.serviceCycleNo
+      ticketId: ticket.id,
+      ticketCode: ticket.ticketCode,
+      client: ticket.site.client.name,
+      site: ticket.site.name,
+      reporter: ticket.reporterName,
+      pic: ticket.picName,
+      category: ticket.category?.name,
+      priority: ticket.priority.code,
+      status: ticket.status,
+      createdAt: ticket.createdAt,
+      firstRespondedAt: ticket.firstRespondedAt,
+      assignedAt: ticket.assignments[0]?.assignedAt,
+      firstCheckinAt: members.map((m: any) => m.firstCheckinAt).filter(Boolean).sort()[0] ?? null,
+      resolvedAt: ticket.resolvedAt,
+      closedAt: ticket.closedAt,
+      respondedBy: ticket.responses[0]?.createdBy.displayName,
+      assignedBy: ticket.assignments.at(-1)?.assignedBy.displayName,
+      leadTechnician: members.find((m: any) => m.isLead && !m.endedAt)?.technician.displayName,
+      technicians: members.map((m: any) => m.technician.displayName).join(', '),
+
+      // Respond SLA
+      slaRespondTargetSeconds: respond?.targetSeconds,
+      slaRespondDueAt: respond?.dueAt,
+      slaRespondElapsedSeconds: respondRuntime?.elapsedSeconds,
+      slaRespondStatus: respondRuntime?.status,
+      slaRespondOutcome: respondRuntime?.outcome,
+      slaRespondBreachSeconds: respondRuntime?.breachSeconds ?? 0,
+
+      // Work SLA — only populated after the first check-in; returns NOT_STARTED before that
+      slaWorkTargetSeconds: workSlas[0]?.targetSeconds ?? null,
+      slaWorkAggregate: aggregate,
+      workMetCount: workRuntimes.filter(
+        (runtime: any) => runtime.outcome === SlaOutcome.MET,
+      ).length,
+      workBreachedCount: workRuntimes.filter(
+        (runtime: any) =>
+          runtime.status === SlaStatus.BREACHED ||
+          runtime.outcome === SlaOutcome.COMPLETED_BREACHED,
+      ).length,
+      workActiveCount: workRuntimes.filter(
+        (runtime: any) => !runtime.outcome,
+      ).length,
+
+      serviceCycleNo: ticket.serviceCycleNo,
     };
   }
 

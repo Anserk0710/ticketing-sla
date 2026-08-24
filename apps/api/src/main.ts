@@ -16,7 +16,16 @@ async function bootstrap() {
   mkdirSync(uploadDir, { recursive: true });
   const app = await NestFactory.create(AppModule, { cors: false });
   app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
-  app.enableCors({ origin: process.env.PUBLIC_WEB_URL?.split(',') ?? ['http://localhost:5173'], credentials: true });
+  const allowedOrigins = (
+    process.env.PUBLIC_WEB_URL ?? 'http://localhost:5173'
+  )
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  app.enableCors({
+    origin: allowedOrigins,
+    credentials: true,
+  });
   app.use((request: Request & { requestId?: string }, response: Response, next: NextFunction) => {
     request.requestId = request.header('x-request-id') ?? randomUUID();
     response.setHeader('x-request-id', request.requestId);

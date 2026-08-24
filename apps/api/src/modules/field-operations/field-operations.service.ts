@@ -339,6 +339,13 @@ export class FieldOperationsService {
             });
           }
 
+          await this.sla.createWork(
+            member,
+            member.assignment.ticket,
+            now,
+            tx,
+          );
+
           /*
            * Ticket-level transition hanya dilakukan oleh
            * technician PERTAMA yang check-in.
@@ -512,6 +519,14 @@ export class FieldOperationsService {
                       true,
                   },
                 },
+
+                slaInstances: {
+                  where: {
+                    slaType: SlaType.WORK,
+                  },
+
+                  take: 1
+                }
               },
             });
 
@@ -571,6 +586,19 @@ export class FieldOperationsService {
 
               message:
                 'Data check-in tidak ditemukan. Check-in wajib dilakukan sebelum memulai pekerjaan.',
+            });
+          }
+
+          const workSla = member.slaInstances[0];
+
+          if (!workSla) {
+            throw new ConflictException({
+              code: 'WORK_SLA_NOT_STARTED',
+              message: 'SLA pengerjaan tidak ditemukan setelah check-in. Muat ulang data atau hubungi Administrator.',
+              details: {
+                assignmentMemberId: member.id,
+                firstCheckinAt: member.firstCheckinAt,
+              },
             });
           }
 
@@ -801,6 +829,20 @@ export class FieldOperationsService {
             });
           }
 
+          const workSla = member.slaInstances[0];
+
+          if (!workSla) {
+            throw new ConflictException({
+              code: 'WORL_SLA_NOT_FOUND',
+              message: 'SLA pengerjaan tidak ditemukan untuk pekerjaan ini. Completion tidak dapat diproses.',
+              details: {
+                assignmentMemberId: member.id,
+                memberStatus: member.status,
+                firstCheckinAt: member.firstCheckinAt,
+              },
+            });
+          }
+
           /*
            * Phase 4 + Phase 6:
            *
@@ -883,20 +925,11 @@ export class FieldOperationsService {
             },
           });
 
-          if (
-            member
-              .slaInstances[0]
-          ) {
-            await this.sla.complete(
-              member
-                .slaInstances[0]
-                .id,
-
-              now,
-
-              tx,
-            );
-          }
+          await this.sla.complete(
+            workSla.id,
+            now,
+            tx,
+          );
 
           await this.notifications.notifyRoles(
             [

@@ -14,13 +14,36 @@ const ACTIVE_SLA_STATUSES: SlaStatus[] = [
 @Injectable()
 export class SlaService {
   constructor(private readonly prisma: PrismaService, private readonly notifications: NotificationsService) { }
+  async policyAt(
+    priorityId: string,
+    effectiveAt: Date,
+    tx?: Prisma.TransactionClient,
+  ) {
+    const db = tx ?? this.prisma;
+
+    return db.slaPolicyVersion.findFirstOrThrow({
+      where: {
+        priorityId,
+        effectiveFrom: {
+          lte: effectiveAt,
+        },
+      },
+      orderBy: [
+        { version: 'desc' },
+        { effectiveFrom: 'desc' },
+      ],
+      include: {
+        priority: true,
+      },
+    });
+  }
 
   async activePolicy(priorityId: string, tx?: Prisma.TransactionClient) {
-    const db = tx ?? this.prisma;
-    return db.slaPolicyVersion.findFirstOrThrow({
-      where: { priorityId, effectiveFrom: { lte: new Date() } }, orderBy: [{ version: 'desc' }, { effectiveFrom: 'desc' }],
-      include: { priority: true }
-    });
+    return this.policyAt(
+      priorityId,
+      new Date(),
+      tx,
+    );
   }
 
   async createRespond(ticket: { id: string; createdAt: Date; serviceCycleNo: number; priorityId: string }, tx: Prisma.TransactionClient) {
@@ -38,18 +61,83 @@ export class SlaService {
     });
   }
 
-  async createWork(member: { id: string; assignedAt: Date }, ticket: { serviceCycleNo: number; priorityId: string }, tx: Prisma.TransactionClient) {
-    const policy = await this.activePolicy(ticket.priorityId, tx);
-    return tx.slaInstance.create({
-      data: {
-        slaType: SlaType.WORK, assignmentMemberId: member.id, serviceCycleNo: ticket.serviceCycleNo,
-        policyVersionId: policy.id, prioritySnapshot: policy.priority.code,
-        targetSeconds: policy.workTargetSeconds, warningThresholdPercent: policy.warningThresholdPercent,
-        startedAt: member.assignedAt,
-        warningAt: addSeconds(member.assignedAt, Math.floor(policy.workTargetSeconds * policy.warningThresholdPercent / 100)),
-        dueAt: addSeconds(member.assignedAt, policy.workTargetSeconds),
-        events: { create: { type: SlaEventType.STARTED } }
-      }
+  async createWork(
+    member: {
+      id: string;
+      assignedAt: Date;
+    },
+    ticket: {
+      serviceCycleNo: number;
+      priorityId: string;
+    },
+    startedAt: Date,
+    tx: Prisma.TransactionClient,
+  ) {
+    const policy = await this.policyAt(
+      ticket.priorityId,
+      member.assignedAt,
+      tx,
+    );
+
+    const warningAt = addSeconds(
+      startedAt,
+      Math.floor(policy.workTargetSeconds * policy.warningThresholdPercent / 100,),
+    );
+
+    const dueAt = addSeconds(
+      startedAt,
+      policy.workTargetSeconds,
+    );
+
+    const lifecycle = {
+      serviceCycleNo: ticket.serviceCycleNo,
+      policyVersionId: policy.id,
+      prioritySnapshot: policy.priority.code,
+      targetSeconds: policy.workTargetSeconds,
+      warningThresholdPercent: policy.warningThresholdPercent,
+      startedAt,
+      warningAt,
+      dueAt,
+    };
+
+    /*
+     * Upsert menjaga kompatibilitas dengan data lama yang membuat
+     * WORK SLA saat assignment. Saat check-in pertama, lifecycle lama
+     * tersebut dimulai ulang dari waktu check-in yang sebenarnya.
+     *
+     * Compound unique key juga membuat operasi ini aman terhadap
+     * race tanpa pola find-then-create.
+     */
+    return tx.slaInstance.upsert({
+      where: {
+        slaType_assignmentMemberId: {
+          slaType: SlaType.WORK,
+          assignmentMemberId: member.id,
+        },
+      },
+      create: {
+        slaType: SlaType.WORK,
+        assignmentMemberId: member.id,
+        ...lifecycle,
+        events: { create: { type: SlaEventType.STARTED } },
+      },
+      update: {
+        ...lifecycle,
+        completedAt: null,
+        endedAt: null,
+        status: SlaStatus.OPEN,
+        outcome: null,
+        breachedAt: null,
+        breachSeconds: 0,
+        events: {
+          create: {
+            type: SlaEventType.RECALCULATED,
+            metadata: {
+              reason: 'WORK_STARTED_AT_CHECKIN',
+            },
+          },
+        },
+      },
     });
   }
 

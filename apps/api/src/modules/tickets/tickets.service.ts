@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -42,6 +43,8 @@ import {
   ResolveTicketDto,
   RespondTicketDto,
   TicketQueryDto,
+  TicketSortBy,
+  TicketSortOrder,
 } from './tickets.dto';
 
 @Injectable()
@@ -100,6 +103,13 @@ export class TicketsService {
     dto: CreateTicketDto,
     idempotencyKey?: string,
   ) {
+    const DIGITS_ONLY_PATTERN = /^\d+$/;
+
+    if (!DIGITS_ONLY_PATTERN.test(dto.contactPhone)) {
+      throw new BadRequestException(
+        'Nomor kontak hanya boleh berisi angka 0-9.',
+      );
+    }
     if (!dto.qrToken && !dto.siteId) {
       throw new NotFoundException({
         code: 'SITE_REQUIRED',
@@ -441,6 +451,12 @@ export class TicketsService {
     query: TicketQueryDto,
     user: AuthUser,
   ) {
+    const search = query.search?.trim();
+
+    const containsSearch = search
+      ? { contains: search, mode: 'insensitive' as const }
+      : null;
+
     const where: Prisma.TicketWhereInput = {
       ...(query.status
         ? {
@@ -466,41 +482,23 @@ export class TicketsService {
             query.categoryId,
         }
         : {}),
-      ...(query.search
+      ...(containsSearch
         ? {
           OR: [
-            {
-              ticketCode: {
-                contains:
-                  query.search,
-                mode:
-                  'insensitive',
-              },
-            },
-            {
-              reporterName: {
-                contains:
-                  query.search,
-                mode:
-                  'insensitive',
-              },
-            },
-            {
-              picName: {
-                contains:
-                  query.search,
-                mode:
-                  'insensitive',
-              },
-            },
-            {
-              description: {
-                contains:
-                  query.search,
-                mode:
-                  'insensitive',
-              },
-            },
+            /* Ticket fields */
+            { ticketCode: containsSearch },
+            { reporterName: containsSearch },
+            { picName: containsSearch },
+            { description: containsSearch },
+
+            /* Client fields: Ticket → Site → Client */
+            { site: { is: { client: { is: { name: containsSearch } } } } },
+            { site: { is: { client: { is: { code: containsSearch } } } } },
+
+            /* Site fields */
+            { site: { is: { name: containsSearch } } },
+            { site: { is: { code: containsSearch } } },
+            { site: { is: { address: containsSearch } } },
           ],
         }
         : {}),
@@ -523,6 +521,11 @@ export class TicketsService {
       };
     }
 
+    const orderBy = this.ticketOrderBy(
+      query.sortBy,
+      query.sortOrder,
+    );
+
     const [tickets, total] =
       await Promise.all([
         this.prisma.ticket.findMany({
@@ -531,9 +534,7 @@ export class TicketsService {
             (query.page - 1) *
             query.pageSize,
           take: query.pageSize,
-          orderBy: {
-            createdAt: 'desc',
-          },
+          orderBy,
           include: {
             site: {
               include: {
@@ -564,8 +565,12 @@ export class TicketsService {
                           true,
                       },
                     },
-                    slaInstances:
-                      true,
+                    slaInstances: {
+                      where: {
+                        slaType: SlaType.WORK
+                      },
+                      take: 1
+                    }
                   },
                 },
               },
@@ -608,6 +613,51 @@ export class TicketsService {
         total,
       },
     };
+  }
+
+  private ticketOrderBy(
+    sortBy: TicketSortBy,
+    sortOrder: TicketSortOrder,
+  ): Prisma.TicketOrderByWithRelationInput[] {
+    const direction =
+      sortOrder === TicketSortOrder.ASC
+        ? ('asc' as const)
+        : ('desc' as const);
+
+    const primarySort: Record<
+      TicketSortBy,
+      Prisma.TicketOrderByWithRelationInput
+    > = {
+      [TicketSortBy.TICKET_CODE]: { ticketCode: direction },
+      [TicketSortBy.CLIENT_NAME]: { site: { client: { name: direction } } },
+      [TicketSortBy.SITE_NAME]: { site: { name: direction } },
+      [TicketSortBy.PRIORITY]: { priority: { severityOrder: direction } },
+      [TicketSortBy.STATUS]: { status: direction },
+      [TicketSortBy.CREATED_AT]: { createdAt: direction },
+    };
+
+    /*
+     * createdAt: cukup gunakan id sebagai
+     * deterministic tie-breaker.
+     */
+    if (sortBy === TicketSortBy.CREATED_AT) {
+      return [primarySort[sortBy], { id: 'asc' }];
+    }
+
+    /*
+     * Business column:
+     *   primary field
+     *   → newest ticket (createdAt DESC)
+     *   → UUID sebagai final tie-breaker (id ASC)
+     *
+     * Menjaga pagination stabil ketika banyak ticket
+     * memiliki nilai primary sort yang sama.
+     */
+    return [
+      primarySort[sortBy],
+      { createdAt: 'desc' },
+      { id: 'asc' },
+    ];
   }
 
   async detail(
@@ -713,8 +763,12 @@ export class TicketsService {
                       email: true,
                     },
                   },
-                  slaInstances:
-                    true,
+                  slaInstances: {
+                    where: {
+                      slaType: SlaType.WORK
+                    },
+                    take: 1
+                  },
                   checkins: {
                     include: {
                       mediaLinks: {

@@ -11,6 +11,13 @@ export interface EmailSendResult {
     recipientCount: number;
 }
 
+type SmtpSendInfo = {
+    accepted?: unknown[];
+    rejected?: unknown[];
+    messageId?: string;
+    response?: string;
+};
+
 @Injectable()
 export class EmailService {
     private readonly logger = new Logger(EmailService.name);
@@ -102,11 +109,16 @@ export class EmailService {
                         )
                         .filter(Boolean),
                 ),
-            ];
+            ].filter(
+                (email) =>
+                    !this.isPlaceholderEmail(
+                        email,
+                    ),
+            );
 
             if (emails.length === 0) {
                 this.logger.warn(
-                    `New-Ticket email skipped for ${ticket.ticketCode}: no approved Head/Administrator recipient.`
+                    `New-Ticket email skipped for ${ticket.ticketCode}: no valid approved Head/Administrator recipient.`
                 );
 
                 return {
@@ -124,44 +136,69 @@ export class EmailService {
                 .filter(Boolean)
                 .join(' - ');
 
-            await this.transporter.sendMail({
-                from: this.from,
-                to: 'Undisclosed recipients:;',
-                bcc: emails,
-                subject: `[Ticketing SLA] Ticket baru ${ticket.ticketCode}`,
-                text: [
-                    'Ticket baru telah masuk.',
-                    '',
-                    `Kode: ${ticket.ticketCode}`,
-                    `Client: ${ticket.site.client.name}`,
-                    `Site: ${ticket.site.name}`,
-                    `Lokasi: ${location}`,
-                    `Kategori: ${category}`,
-                    `Prioritas: ${ticket.priority.label}`,
-                    `Pelapor: ${ticket.reporterName}`,
-                    `PIC: ${ticket.picName}`,
-                    '',
-                    'Deskripsi:',
-                    ticket.description,
-                    '',
-                    `Buka detail ticket: ${targetUrl}`,
-                ].join('\n'),
+            const sendInfo =
+                await this.transporter.sendMail({
+                    from: this.from,
+                    to: emails,
+                    subject: `[Ticketing SLA] Ticket baru ${ticket.ticketCode}`,
+                    text: [
+                        'Ticket baru telah masuk.',
+                        '',
+                        `Kode: ${ticket.ticketCode}`,
+                        `Client: ${ticket.site.client.name}`,
+                        `Site: ${ticket.site.name}`,
+                        `Lokasi: ${location}`,
+                        `Kategori: ${category}`,
+                        `Prioritas: ${ticket.priority.label}`,
+                        `Pelapor: ${ticket.reporterName}`,
+                        `PIC: ${ticket.picName}`,
+                        '',
+                        'Deskripsi:',
+                        ticket.description,
+                        '',
+                        `Buka detail ticket: ${targetUrl}`,
+                    ].join('\n'),
 
-                html: this.renderNewTicketHtml({
-                    ticketCode: ticket.ticketCode,
-                    clientName: ticket.site.client.name,
-                    siteName: ticket.site.name,
-                    location,
-                    category,
-                    priority: ticket.priority.label,
-                    reporterName: ticket.reporterName,
-                    picName: ticket.picName,
-                    description: ticket.description,
-                    targetUrl,
-                }),
-            });
+                    html: this.renderNewTicketHtml({
+                        ticketCode: ticket.ticketCode,
+                        clientName: ticket.site.client.name,
+                        siteName: ticket.site.name,
+                        location,
+                        category,
+                        priority: ticket.priority.label,
+                        reporterName: ticket.reporterName,
+                        picName: ticket.picName,
+                        description: ticket.description,
+                        targetUrl,
+                    }),
+                }) as SmtpSendInfo;
 
-            this.logger.log(`New-ticket email sent for ${ticket.ticketCode} to ${emails.length} recipient(s).`);
+            const accepted =
+                this.countSmtpRecipients(
+                    sendInfo.accepted,
+                );
+
+            const rejected =
+                this.countSmtpRecipients(
+                    sendInfo.rejected,
+                );
+
+            this.logger.log(
+                [
+                    `New-ticket email sent for ${ticket.ticketCode}`,
+                    `requested=${emails.length}`,
+                    `accepted=${accepted}`,
+                    `rejected=${rejected}`,
+                    sendInfo.messageId
+                        ? `messageId=${sendInfo.messageId}`
+                        : null,
+                    sendInfo.response
+                        ? `response=${sendInfo.response}`
+                        : null,
+                ]
+                    .filter(Boolean)
+                    .join(' '),
+            );
 
             return {
                 status: 'SENT',
@@ -180,6 +217,34 @@ export class EmailService {
                 recipientCount: 0,
             };
         }
+    }
+
+    private isPlaceholderEmail(
+        email: string,
+    ): boolean {
+        const domain =
+            email
+                .split('@')
+                .at(1)
+                ?.toLowerCase();
+
+        return [
+            'example.com',
+            'example.net',
+            'example.org',
+        ].includes(
+            domain ?? '',
+        );
+    }
+
+    private countSmtpRecipients(
+        recipients: unknown[] | undefined,
+    ): number {
+        return Array.isArray(
+            recipients,
+        )
+            ? recipients.length
+            : 0;
     }
 
     private createTransporter(): {
@@ -286,18 +351,65 @@ export class EmailService {
          * sebagai konfigurasi CORS dan bisa berisi
          * beberapa origin dipisahkan koma.
          *
-         * Email hanya menggunakan origin pertama.
+         * Email memakai origin non-localhost pertama
+         * agar direct link tidak mengarah ke localhost.
          */
-        const configured =
+        const explicitBaseUrl =
             this.config
-                .get<string>('PUBLIC_WEB_URL')
-                ?.split(',')[0]
+                .get<string>('EMAIL_WEB_BASE_URL')
+                ?.trim() ||
+            this.config
+                .get<string>('WEB_BASE_URL')
                 ?.trim();
+
+        if (explicitBaseUrl) {
+            return explicitBaseUrl.replace(/\/+$/, '');
+        }
+
+        const origins =
+            (
+                this.config
+                    .get<string>('PUBLIC_WEB_URL') ||
+                ''
+            )
+                .split(',')
+                .map((origin) => origin.trim())
+                .filter(Boolean);
+
+        const configured =
+            origins.find(
+                (origin) =>
+                    !this.isLocalOrigin(origin),
+            ) ||
+            origins[0];
 
         return (
             configured ||
             'http://localhost:5173'
         ).replace(/\/+$/, '');
+    }
+
+    private isLocalOrigin(origin: string): boolean {
+        try {
+            const hostname =
+                new URL(origin)
+                    .hostname
+                    .toLowerCase();
+
+            return [
+                'localhost',
+                '127.0.0.1',
+                '::1',
+            ].includes(hostname);
+        } catch {
+            const normalized =
+                origin.toLowerCase();
+
+            return (
+                normalized.includes('localhost') ||
+                normalized.includes('127.0.0.1')
+            );
+        }
     }
 
     private readBoolean(

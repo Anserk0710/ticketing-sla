@@ -1,6 +1,6 @@
 import type { ApiFailure, AuthSession } from '../types/api';
 
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api/v1';
+const API_URL = (import.meta.env.VITE_API_URL || '/api/v1').replace(/\/$/, '');
 const SESSION_KEY = 'ticketing-sla-session';
 let refreshPromise: Promise<AuthSession | null> | null = null;
 

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Check, ChevronDown, ChevronUp, Copy, Edit2, ExternalLink,
-  MapPin, Plus, QrCode, RefreshCw, X
+  MapPin, Plus, QrCode, RefreshCw, Trash2, X
 } from 'lucide-react';
 import { Fragment, useState } from 'react';
 import { apiRequest } from '../../api/http-client';
@@ -605,6 +605,278 @@ function UsersTab() {
 /* ──────────────────────────────────────────────────────────── */
 /*  TAB SLA POLICY                                              */
 /* ──────────────────────────────────────────────────────────── */
+type ManagedUserRole = 'HEAD' | 'TECHNICIAN';
+type ManagedUserStatus = 'APPROVED' | 'PENDING_APPROVAL' | 'SUSPENDED' | 'DISABLED' | 'REJECTED';
+
+type UserFormState = {
+  displayName: string;
+  email: string;
+  phone: string;
+  role: ManagedUserRole;
+  status: ManagedUserStatus;
+  employeeCode: string;
+  skills: string;
+  isAvailable: boolean;
+};
+
+const emptyUserForm: UserFormState = {
+  displayName: '',
+  email: '',
+  phone: '',
+  role: 'TECHNICIAN',
+  status: 'APPROVED',
+  employeeCode: '',
+  skills: '',
+  isAvailable: true
+};
+
+function userRoles(item: any): string[] {
+  return item.roles?.map((entry: any) => entry.role.name) ?? [];
+}
+
+function managedRole(item: any): ManagedUserRole | null {
+  const role = userRoles(item).find((name) => name === 'HEAD' || name === 'TECHNICIAN');
+  return role ? role as ManagedUserRole : null;
+}
+
+function toSkillList(value: string): string[] {
+  return value.split(',').map((skill) => skill.trim()).filter(Boolean);
+}
+
+function UsersCrudTab() {
+  const qc = useQueryClient();
+  const { hasPermission } = useAuth();
+  const [actionId, setActionId] = useState<string | null>(null);
+  const [reason, setReason] = useState('');
+  const [openUserForm, setOpenUserForm] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [userForm, setUserForm] = useState<UserFormState>(emptyUserForm);
+  const [tempResult, setTempResult] = useState<{ temporaryPassword: string } | null>(null);
+
+  const query = useQuery({ queryKey: ['users'], queryFn: () => apiRequest<any[]>('/users') });
+  const saveUser = useMutation({
+    mutationFn: (body: object) =>
+      apiRequest<{ temporaryPassword?: string }>(editId ? `/users/${editId}` : '/users', { method: editId ? 'PATCH' : 'POST', body: JSON.stringify(body) }),
+    onSuccess: async (data) => {
+      if (data?.temporaryPassword) setTempResult({ temporaryPassword: data.temporaryPassword });
+      setOpenUserForm(false); setEditId(null); setUserForm(emptyUserForm);
+      await qc.invalidateQueries({ queryKey: ['users'] });
+    }
+  });
+  const resetPass = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      apiRequest<{ temporaryPassword: string }>(`/users/${id}/temporary-password`, { method: 'POST', body: JSON.stringify({ reason }) }),
+    onSuccess: async (data) => { setTempResult(data); setActionId(null); setReason(''); await qc.invalidateQueries({ queryKey: ['users'] }); }
+  });
+  const disableUser = useMutation({
+    mutationFn: (id: string) => apiRequest(`/users/${id}`, { method: 'DELETE' }),
+    onSuccess: async () => { await qc.invalidateQueries({ queryKey: ['users'] }); }
+  });
+
+  function startNew() {
+    setUserForm(emptyUserForm); setEditId(null); setOpenUserForm(true); setTempResult(null);
+  }
+
+  function startEdit(item: any) {
+    const role = managedRole(item);
+    if (!role) return;
+    setUserForm({
+      displayName: item.displayName ?? '',
+      email: item.email ?? '',
+      phone: item.phoneNormalized ?? '',
+      role,
+      status: item.status === 'PENDING_EMAIL_VERIFICATION' ? 'PENDING_APPROVAL' : item.status,
+      employeeCode: item.technicianProfile?.employeeCode ?? '',
+      skills: item.technicianProfile?.skills?.join(', ') ?? '',
+      isAvailable: item.technicianProfile?.isAvailable ?? true
+    });
+    setEditId(item.id); setOpenUserForm(true); setTempResult(null);
+  }
+
+  function submitUser(e: React.FormEvent) {
+    e.preventDefault();
+    saveUser.mutate({
+      displayName: userForm.displayName,
+      email: userForm.email,
+      phone: userForm.phone || undefined,
+      role: userForm.role,
+      status: userForm.status,
+      ...(userForm.role === 'TECHNICIAN' ? {
+        employeeCode: userForm.employeeCode || undefined,
+        skills: toSkillList(userForm.skills),
+        isAvailable: userForm.isAvailable
+      } : {})
+    });
+  }
+
+  if (query.isLoading) return <Loading />;
+  if (query.error) return <ErrorPanel error={query.error} />;
+
+  return (
+    <div>
+      <SectionTitle title="Users" count={query.data?.length}
+        action={hasPermission('user.manage') && <Button onClick={startNew}><Plus className="h-4 w-4" />Tambah User</Button>} />
+
+      {openUserForm && hasPermission('user.manage') && (
+        <InlineForm title={editId ? 'Edit User' : 'Tambah User Baru'} error={saveUser.error} onClose={() => { setOpenUserForm(false); setEditId(null); }}>
+          <form className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" onSubmit={submitUser}>
+            <Field label="Nama">
+              <Input value={userForm.displayName} onChange={(e) => setUserForm(f => ({ ...f, displayName: e.target.value }))} required placeholder="Nama user" />
+            </Field>
+            <Field label="Email">
+              <Input type="email" value={userForm.email} onChange={(e) => setUserForm(f => ({ ...f, email: e.target.value }))} required placeholder="user@company.com" />
+            </Field>
+            <Field label="No. HP">
+              <Input value={userForm.phone} onChange={(e) => setUserForm(f => ({ ...f, phone: e.target.value }))} placeholder="08123456789" />
+            </Field>
+            <Field label="Role">
+              <Select value={userForm.role} onChange={(e) => setUserForm(f => ({ ...f, role: e.target.value as ManagedUserRole }))}>
+                <option value="TECHNICIAN">Teknisi</option>
+                <option value="HEAD">Head</option>
+              </Select>
+            </Field>
+            <Field label="Status">
+              <Select value={userForm.status} onChange={(e) => setUserForm(f => ({ ...f, status: e.target.value as ManagedUserStatus }))}>
+                <option value="APPROVED">Approved</option>
+                <option value="PENDING_APPROVAL">Pending Approval</option>
+                <option value="SUSPENDED">Suspended</option>
+                <option value="DISABLED">Disabled</option>
+                <option value="REJECTED">Rejected</option>
+              </Select>
+            </Field>
+            {userForm.role === 'TECHNICIAN' && (
+              <>
+                <Field label="Kode Teknisi">
+                  <Input value={userForm.employeeCode} onChange={(e) => setUserForm(f => ({ ...f, employeeCode: e.target.value.toUpperCase() }))} placeholder="TECH-001" />
+                </Field>
+                <Field label="Keahlian" className="sm:col-span-2">
+                  <Input value={userForm.skills} onChange={(e) => setUserForm(f => ({ ...f, skills: e.target.value }))} placeholder="Network, Hardware" />
+                </Field>
+                <Field label="Ketersediaan">
+                  <Select value={userForm.isAvailable ? '1' : '0'} onChange={(e) => setUserForm(f => ({ ...f, isAvailable: e.target.value === '1' }))}>
+                    <option value="1">Available</option>
+                    <option value="0">Unavailable</option>
+                  </Select>
+                </Field>
+              </>
+            )}
+            <div className="sm:col-span-2 lg:col-span-3 flex gap-2">
+              <Button type="submit" loading={saveUser.isPending}>{editId ? 'Simpan Perubahan' : 'Buat User'}</Button>
+              <Button type="button" variant="ghost" onClick={() => { setOpenUserForm(false); setEditId(null); }}>Batal</Button>
+            </div>
+          </form>
+        </InlineForm>
+      )}
+
+      {tempResult && (
+        <div className="mb-5 rounded-2xl border border-amber-300 bg-amber-50 p-5">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="font-bold text-amber-800">Password sementara berhasil dibuat</p>
+              <p className="mt-1 text-xs text-amber-700">Bagikan ke user. Password wajib diganti saat login pertama.</p>
+            </div>
+            <button onClick={() => setTempResult(null)} className="text-amber-600 hover:text-amber-900"><X className="h-4 w-4" /></button>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <code className="rounded-xl border border-amber-300 bg-amber-100 px-4 py-2.5 font-mono text-xl font-bold text-amber-900 tracking-widest">
+              {tempResult.temporaryPassword}
+            </code>
+            <CopyBtn text={tempResult.temporaryPassword} />
+          </div>
+        </div>
+      )}
+
+      <div className="overflow-x-auto rounded-xl border border-iron-grey-200/80">
+        <table className="w-full min-w-[900px] text-left text-sm">
+          <Thead cols={['User', 'Role', 'Profil', 'Status', 'Last Login', 'Terdaftar', 'Aksi']} />
+          <tbody className="divide-y divide-iron-grey-100 bg-white">
+            {query.data?.map((item) => {
+              const role = managedRole(item);
+              const editable = hasPermission('user.manage') && !!role;
+              return (
+                <Fragment key={item.id}>
+                  <tr className="hover:bg-alice-blue-50/30 transition-colors">
+                    <td className="px-4 py-3.5">
+                      <p className="font-bold text-charcoal-900">{item.displayName}</p>
+                      <p className="text-xs text-lavender-grey-500">{item.email}</p>
+                      {item.phoneNormalized && <p className="text-xs text-lavender-grey-400">{item.phoneNormalized}</p>}
+                    </td>
+                    <td className="px-4 py-3.5">
+                      <div className="flex flex-wrap gap-1">
+                        {userRoles(item).map((name) => <Badge key={name} value={name} variant="dark" />)}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3.5 text-xs text-lavender-grey-500">
+                      {role === 'TECHNICIAN' ? (
+                        <div className="space-y-1">
+                          <p className="font-mono font-bold text-charcoal-700">{item.technicianProfile?.employeeCode ?? '-'}</p>
+                          <p>{item.technicianProfile?.skills?.length ? item.technicianProfile.skills.join(', ') : 'Skill belum diisi'}</p>
+                          <Badge value={item.technicianProfile?.isAvailable ? 'AVAILABLE' : 'UNAVAILABLE'} />
+                        </div>
+                      ) : role === 'HEAD' ? 'Head operasional' : '-'}
+                    </td>
+                    <td className="px-4 py-3.5"><Badge value={item.status} /></td>
+                    <td className="px-4 py-3.5 text-xs text-lavender-grey-500">{formatDate(item.lastLoginAt)}</td>
+                    <td className="px-4 py-3.5 text-xs text-lavender-grey-500">{formatDate(item.createdAt)}</td>
+                    <td className="px-4 py-3.5">
+                      {editable ? (
+                        <div className="flex flex-wrap gap-2">
+                          <button onClick={() => startEdit(item)} className="inline-flex items-center gap-1.5 text-xs font-semibold text-lavender-grey-500 hover:text-alice-blue-700 transition-colors">
+                            <Edit2 className="h-3.5 w-3.5" />Edit
+                          </button>
+                          <button
+                            onClick={() => { setActionId(item.id); setReason(''); setTempResult(null); }}
+                            className="inline-flex items-center gap-1.5 text-xs font-semibold text-lavender-grey-500 hover:text-amber-700 transition-colors"
+                          >
+                            <RefreshCw className="h-3.5 w-3.5" />Reset
+                          </button>
+                          {item.status !== 'DISABLED' && (
+                            <button
+                              onClick={() => { if (window.confirm(`Nonaktifkan ${item.displayName}?`)) disableUser.mutate(item.id); }}
+                              className="inline-flex items-center gap-1.5 text-xs font-semibold text-lavender-grey-500 hover:text-rose-700 transition-colors"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />Nonaktifkan
+                            </button>
+                          )}
+                        </div>
+                      ) : <span className="text-xs text-lavender-grey-400">Tidak tersedia</span>}
+                    </td>
+                  </tr>
+                  {actionId === item.id && (
+                    <tr>
+                      <td colSpan={7} className="bg-amber-50 px-4 py-0">
+                        <div className="my-3 rounded-xl border border-amber-200 p-4">
+                          <p className="mb-3 font-bold text-amber-800">Reset Password - {item.displayName}</p>
+                          <div className="flex flex-wrap items-end gap-3">
+                            <Field label="Alasan reset" className="flex-1 min-w-[220px]">
+                              <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Contoh: User lupa password" required />
+                            </Field>
+                            <div className="flex gap-2 pb-px">
+                              <Button loading={resetPass.isPending} onClick={() => { if (reason) resetPass.mutate({ id: item.id, reason }); }}>
+                                <RefreshCw className="h-4 w-4" />Generate Password
+                              </Button>
+                              <Button variant="ghost" onClick={() => setActionId(null)}>Batal</Button>
+                            </div>
+                          </div>
+                          {resetPass.error && <div className="mt-3"><ErrorPanel error={resetPass.error} /></div>}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+            {!query.data?.length && (
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-lavender-grey-400">Belum ada user. Klik "Tambah User".</td></tr>
+            )}
+          </tbody>
+        </table>
+        {disableUser.error && <div className="border-t border-rose-100 p-4"><ErrorPanel error={disableUser.error} /></div>}
+      </div>
+    </div>
+  );
+}
+
 function SlaPoliciesTab() {
   const qc = useQueryClient();
   const { hasPermission } = useAuth();
@@ -731,7 +1003,7 @@ export function SettingsPage() {
         {tab === 'clients' && <ClientsTab />}
         {tab === 'sites'   && <SitesTab />}
         {tab === 'catalog' && <CatalogTab />}
-        {tab === 'users'   && <UsersTab />}
+        {tab === 'users'   && <UsersCrudTab />}
         {tab === 'sla'     && <SlaPoliciesTab />}
       </Card>
     </>

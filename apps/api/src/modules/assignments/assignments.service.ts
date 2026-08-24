@@ -201,12 +201,13 @@ export class AssignmentsService {
                 },
               });
 
-            await this.sla.createWork(
-              member,
-              ticket,
-              tx,
-            );
-
+            /*
+             * WORK SLA tidak dibuat saat assignment.
+             *
+             * Assignment hanya membentuk lifecycle penugasan.
+             * WORK SLA baru akan dibuat setelah technician
+             * berhasil melakukan check-in.
+             */
             await this.notifications.createUnique(
               {
                 recipientUserId:
@@ -798,20 +799,12 @@ export class AssignmentsService {
               });
 
             /*
-             * SLA Work baru dibuat karena ini merupakan
-             * REASSIGNMENT eksplisit.
+             * WORK SLA sengaja belum dibuat di sini.
              *
-             * Ini bukan akibat reschedule/PENDING.
-             *
-             * Selama ticket PENDING, method reassign tidak dapat
-             * mencapai baris ini sehingga SLA lama terus berjalan.
+             * Assignment/reassignment hanya membentuk lifecycle
+             * penugasan. WORK SLA baru akan dimulai setelah
+             * technician berhasil check-in.
              */
-            await this.sla.createWork(
-              member,
-              old.ticket,
-              tx,
-            );
-
             await this.notifications.createUnique(
               {
                 recipientUserId:
@@ -1159,24 +1152,20 @@ export class AssignmentsService {
             }
           }
 
+          const activeWorkSla =
+            member.slaInstances.find(
+              (instance) =>
+                !instance.completedAt &&
+                !instance.endedAt,
+            );
+
           if (
-            member.slaInstances[0] &&
-            !member
-              .slaInstances[0]
-              .completedAt &&
-            !member
-              .slaInstances[0]
-              .endedAt
+            activeWorkSla
           ) {
             await this.sla.end(
-              member
-                .slaInstances[0]
-                .id,
-
+              activeWorkSla.id,
               now,
-
               SlaOutcome.REMOVED,
-
               tx,
             );
           }

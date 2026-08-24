@@ -4,20 +4,45 @@ set -eu
 APP_DIR="/app/apps/api"
 SCHEMA="$APP_DIR/prisma/schema.prisma"
 PRISMA_CLI="/app/node_modules/prisma/build/index.js"
+UPLOAD_DIR="${UPLOAD_DIR:-$APP_DIR/uploads}"
 RETRIES="${DATABASE_BOOTSTRAP_RETRIES:-30}"
 DELAY="${DATABASE_BOOTSTRAP_DELAY_SECONDS:-2}"
+
+run_as_node() {
+  if [ "$(id -u)" = "0" ]; then
+    su-exec node "$@"
+  else
+    "$@"
+  fi
+}
+
+exec_as_node() {
+  if [ "$(id -u)" = "0" ]; then
+    exec su-exec node "$@"
+  else
+    exec "$@"
+  fi
+}
+
+mkdir -p "$UPLOAD_DIR"
+if [ "$(id -u)" = "0" ]; then
+  if ! su-exec node test -w "$UPLOAD_DIR"; then
+    chown -R node:node "$UPLOAD_DIR"
+  fi
+  chmod 755 "$UPLOAD_DIR"
+fi
 
 # Mendukung perintah one-off, misalnya:
 # docker compose run --rm api node prisma/seed.js
 if [ "$#" -gt 0 ]; then
-  exec "$@"
+  exec_as_node "$@"
 fi
 
 cd "$APP_DIR"
 
 echo "[api-entrypoint] Menyiapkan skema database..."
 attempt=1
-while ! node "$PRISMA_CLI" db push --skip-generate --schema "$SCHEMA"; do
+while ! run_as_node node "$PRISMA_CLI" db push --skip-generate --schema "$SCHEMA"; do
   if [ "$attempt" -ge "$RETRIES" ]; then
     echo "[api-entrypoint] Database belum siap setelah $RETRIES percobaan." >&2
     exit 1
@@ -28,4 +53,4 @@ while ! node "$PRISMA_CLI" db push --skip-generate --schema "$SCHEMA"; do
 done
 
 echo "[api-entrypoint] Skema database siap. Menjalankan NestJS..."
-exec node "$APP_DIR/dist/main.js"
+exec_as_node node "$APP_DIR/dist/main.js"

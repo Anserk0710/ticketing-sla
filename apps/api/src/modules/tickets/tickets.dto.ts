@@ -9,6 +9,7 @@ import {
   IsArray,
   IsBoolean,
   IsDateString,
+  IsEnum,
   IsInt,
   IsOptional,
   IsString,
@@ -16,6 +17,7 @@ import {
   Max,
   Min,
   MinLength,
+  Matches,
 } from 'class-validator';
 
 import { Type } from 'class-transformer';
@@ -44,6 +46,7 @@ export class CreateTicketDto {
   @ApiProperty()
   @IsString()
   @MinLength(7)
+  @Matches(/^\d+$/, { message: 'Nomor kontak hanya boleh berisi angka 0-9.' })
   contactPhone!: string;
 
   @ApiPropertyOptional()
@@ -159,6 +162,20 @@ export class CommentDto {
   isPublic?: boolean;
 }
 
+export enum TicketSortBy {
+  TICKET_CODE = 'ticketCode',
+  CLIENT_NAME = 'clientName',
+  SITE_NAME = 'siteName',
+  PRIORITY = 'priority',
+  STATUS = 'status',
+  CREATED_AT = 'createdAt',
+}
+
+export enum TicketSortOrder {
+  ASC = 'asc',
+  DESC = 'desc',
+}
+
 export class TicketQueryDto {
   @ApiPropertyOptional()
   @IsOptional()
@@ -199,6 +216,22 @@ export class TicketQueryDto {
   @IsOptional()
   @IsUUID()
   categoryId?: string;
+
+  @ApiPropertyOptional({
+    enum: TicketSortBy,
+    default: TicketSortBy.CREATED_AT,
+  })
+  @IsOptional()
+  @IsEnum(TicketSortBy)
+  sortBy: TicketSortBy = TicketSortBy.CREATED_AT;
+
+  @ApiPropertyOptional({
+    enum: TicketSortOrder,
+    default: TicketSortOrder.DESC,
+  })
+  @IsOptional()
+  @IsEnum(TicketSortOrder)
+  sortOrder: TicketSortOrder = TicketSortOrder.DESC;
 }
 
 export class RescheduleTicketDto {

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { Search } from 'lucide-react';
-import { useState } from 'react';
+import { ArrowDown, ArrowUp, ArrowUpDown, Search } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiRequest } from '../../api/http-client';
 import { EmptyState } from '../../components/data-display/empty-state';
@@ -12,13 +12,69 @@ import { Card } from '../../components/ui/card';
 import { Input, Select } from '../../components/ui/field';
 import { formatDate } from '../../utils/format';
 
+type TicketSortBy = 'ticketCode' | 'clientName' | 'siteName' | 'priority' | 'status' | 'createdAt';
+type TicketSortOrder = 'asc' | 'desc';
+
+type SortableHeaderProps = {
+  label: string;
+  value: TicketSortBy;
+  sortBy: TicketSortBy;
+  sortOrder: TicketSortOrder;
+  onSort: (value: TicketSortBy) => void;
+};
+
+function SortableHeader({ label, value, sortBy, sortOrder, onSort }: SortableHeaderProps) {
+  const isActive = sortBy === value;
+  const SortIcon = isActive ? (sortOrder === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
+
+  return (
+    <th
+      aria-sort={isActive ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'}
+      className="py-3.5 px-4"
+      scope="col"
+    >
+      <button
+        className="inline-flex items-center gap-1.5 rounded-sm text-left hover:text-charcoal-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-alice-blue-500 focus-visible:ring-offset-2"
+        onClick={() => onSort(value)}
+        type="button"
+      >
+        {label}
+        <SortIcon aria-hidden="true" className={isActive ? 'text-alice-blue-700' : 'text-lavender-grey-400'} size={14} />
+      </button>
+    </th>
+  );
+}
+
 export function TicketsPage() {
-  const [search, setSearch] = useState('');
+  const [inputSearch, setInputSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [status, setStatus] = useState('');
+  const [sortBy, setSortBy] = useState<TicketSortBy>('createdAt');
+  const [sortOrder, setSortOrder] = useState<TicketSortOrder>('desc');
   const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedSearch(inputSearch.trim());
+      setPage(1);
+    }, 300);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [inputSearch]);
+
+  const handleSort = (nextSortBy: TicketSortBy) => {
+    if (nextSortBy === sortBy) {
+      setSortOrder((current) => current === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(nextSortBy);
+      setSortOrder('asc');
+    }
+    setPage(1);
+  };
+
   const query = useQuery({
-    queryKey: ['tickets', search, status, page],
-    queryFn: () => apiRequest<any>(`/tickets?page=${page}&pageSize=20&search=${encodeURIComponent(search)}${status ? `&status=${status}` : ''}`)
+    queryKey: ['tickets', debouncedSearch, status, sortBy, sortOrder, page],
+    queryFn: () => apiRequest<any>(`/tickets?page=${page}&pageSize=20&search=${encodeURIComponent(debouncedSearch)}${status ? `&status=${status}` : ''}&sortBy=${sortBy}&sortOrder=${sortOrder}`)
   });
 
   return (
@@ -28,7 +84,7 @@ export function TicketsPage() {
         <div className="grid gap-3 md:grid-cols-[1fr_240px]">
           <div className="relative">
             <Search className="absolute left-3.5 top-3 h-4 w-4 text-lavender-grey-400" />
-            <Input className="pl-10" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} placeholder="Cari kode ticket, reporter, PIC, atau deskripsi..." />
+            <Input className="pl-10" value={inputSearch} onChange={(e) => setInputSearch(e.target.value)} placeholder="Cari ticket, client, site, reporter, PIC, atau deskripsi..." />
           </div>
           <Select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
             <option value="">Semua status ticket</option>
@@ -49,13 +105,14 @@ export function TicketsPage() {
             <table className="w-full min-w-[950px] text-left text-sm">
               <thead className="bg-iron-grey-100/80 text-[11px] font-bold uppercase tracking-wider text-charcoal-700">
                 <tr>
-                  <th className="py-3.5 px-4">Ticket</th>
-                  <th className="py-3.5 px-4">Client / Site</th>
-                  <th className="py-3.5 px-4">Priority</th>
-                  <th className="py-3.5 px-4">Status</th>
-                  <th className="py-3.5 px-4">SLA Respond</th>
-                  <th className="py-3.5 px-4">SLA Pengerjaan</th>
-                  <th className="py-3.5 px-4">Dibuat</th>
+                  <SortableHeader label="Ticket" value="ticketCode" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} />
+                  <SortableHeader label="Client" value="clientName" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} />
+                  <SortableHeader label="Site" value="siteName" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} />
+                  <SortableHeader label="Priority" value="priority" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} />
+                  <SortableHeader label="Status" value="status" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} />
+                  <th className="py-3.5 px-4" scope="col">SLA Respond</th>
+                  <th className="py-3.5 px-4" scope="col">SLA Pengerjaan</th>
+                  <SortableHeader label="Dibuat" value="createdAt" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} />
                 </tr>
               </thead>
               <tbody className="divide-y divide-iron-grey-100 bg-white">
@@ -71,8 +128,8 @@ export function TicketsPage() {
                       </td>
                       <td className="py-4 px-4">
                         <p className="font-bold text-charcoal-900">{ticket.site.client.name}</p>
-                        <p className="text-xs text-lavender-grey-500">{ticket.site.name}</p>
                       </td>
+                      <td className="py-4 px-4 text-xs text-lavender-grey-500">{ticket.site.name}</td>
                       <td className="py-4 px-4"><Badge value={ticket.priority.code} /></td>
                       <td className="py-4 px-4"><Badge value={ticket.status} /></td>
                       <td className="py-4 px-4">
@@ -135,4 +192,3 @@ export function TicketsPage() {
     </>
   );
 }
-

@@ -12,3 +12,4 @@ apps/api/uploads/*
 *.zip
 backup/
 api-logs.txt
+runtime/certs/**/*.pem

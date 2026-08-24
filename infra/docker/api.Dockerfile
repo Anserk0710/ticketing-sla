@@ -13,7 +13,7 @@ FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Install necessary system packages if needed (none currently)
+RUN apk add --no-cache su-exec
 
 # Copy files with node user ownership
 COPY --chown=node:node --from=build /app/node_modules ./node_modules
@@ -30,8 +30,5 @@ RUN mkdir -p apps/api/uploads \
 
 WORKDIR /app/apps/api
 EXPOSE 3000
-
-# Switch to non-root user
-USER node
 
 ENTRYPOINT ["/app/infra/docker/api-entrypoint.sh"]
