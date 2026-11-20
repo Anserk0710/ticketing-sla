@@ -1,0 +1,11 @@
+node_modules
+uploads
+dist
+*.log
+.env
+.env.*
+!.env.example
+!.env.production.example
+tsconfig.build.tsbuildinfo
+test
+coverage

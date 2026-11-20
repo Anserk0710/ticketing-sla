@@ -1,6 +1,72 @@
 import { ConfigService } from '@nestjs/config';
+import { Logger } from '@nestjs/common';
+import nodemailer, { Transporter } from 'nodemailer';
 import { PrismaService } from '../../database/prisma.service';
 import { EmailService } from './email.service';
+
+describe('EmailService.sendPasswordResetEmail', () => {
+    const recipient = 'recipient@example.com';
+    const token = 'reset-token-for-test';
+    let sendMail: jest.Mock;
+
+    function createService(env: Record<string, string> = {}) {
+        const values: Record<string, string> = {
+            SMTP_HOST: 'smtp.example.com',
+            SMTP_FROM: 'Ticketing SLA <sender@example.com>',
+            EMAIL_WEB_BASE_URL: 'https://service.example.com/',
+            ...env,
+        };
+        return new EmailService({} as PrismaService, {
+            get: jest.fn((key: string, fallback?: unknown) => values[key] ?? fallback),
+        } as unknown as ConfigService);
+    }
+
+    beforeEach(() => {
+        sendMail = jest.fn().mockResolvedValue({ accepted: [recipient], rejected: [] });
+        jest.spyOn(nodemailer, 'createTransport').mockReturnValue({ sendMail } as unknown as Transporter);
+        jest.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
+        jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+        jest.spyOn(Logger.prototype, 'error').mockImplementation(() => {});
+    });
+
+    afterEach(() => jest.restoreAllMocks());
+
+    it('sends text and HTML with a reset link accepted by the configured frontend', async () => {
+        expect(await createService().sendPasswordResetEmail(recipient, token)).toEqual({ status: 'SENT', recipientCount: 1 });
+        expect(sendMail).toHaveBeenCalledTimes(1);
+        const message = sendMail.mock.calls[0][0];
+        const targetUrl = `https://service.example.com/reset-password?token=${token}`;
+        expect(message.to).toBe(recipient);
+        expect(message.from).toBe('Ticketing SLA <sender@example.com>');
+        expect(message.text).toContain(targetUrl);
+        expect(message.html).toContain(`href="${targetUrl}"`);
+        expect(message.text).toContain('30 menit');
+        expect(message.html).toContain('30 menit');
+        expect(JSON.stringify((Logger.prototype.log as jest.Mock).mock.calls)).not.toContain(token);
+    });
+
+    it('encodes the reset token in the URL', async () => {
+        await createService().sendPasswordResetEmail(recipient, 'a+b&c');
+        expect(sendMail.mock.calls[0][0].html).toContain('?token=a%2Bb%26c');
+    });
+
+    it('reports disabled SMTP without attempting to send', async () => {
+        expect(await createService({ SMTP_HOST: '' }).sendPasswordResetEmail(recipient, token)).toEqual({ status: 'DISABLED', recipientCount: 0 });
+        expect(sendMail).not.toHaveBeenCalled();
+    });
+
+    it('reports rejected recipients as failed delivery', async () => {
+        sendMail.mockResolvedValue({ accepted: [], rejected: [recipient] });
+        expect(await createService().sendPasswordResetEmail(recipient, token)).toEqual({ status: 'FAILED', recipientCount: 0 });
+    });
+
+    it('handles SMTP authentication errors without logging the token or raw error', async () => {
+        sendMail.mockRejectedValue(Object.assign(new Error(`sensitive details ${token}`), { code: 'EAUTH', responseCode: 535 }));
+        expect(await createService().sendPasswordResetEmail(recipient, token)).toEqual({ status: 'FAILED', recipientCount: 0 });
+        expect(Logger.prototype.error).toHaveBeenCalledWith(expect.stringContaining('code=EAUTH responseCode=535'));
+        expect(JSON.stringify((Logger.prototype.error as jest.Mock).mock.calls)).not.toContain(token);
+    });
+});
 
 describe('EmailService.resolveWebBaseUrl', () => {
     const mockPrisma = {} as PrismaService;

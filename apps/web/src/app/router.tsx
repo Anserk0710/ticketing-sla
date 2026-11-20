@@ -11,6 +11,7 @@ import { TicketDetailPage } from '../pages/internal/ticket-detail-page';
 import { TicketsPage } from '../pages/internal/tickets-page';
 import { NotFoundPage } from '../pages/not-found-page';
 import { ForgotPasswordPage } from '../pages/public/forgot-password-page';
+import { HomePage } from '../pages/public/home-page';
 import { LoginPage } from '../pages/public/login-page';
 import { PublicComplaintPage } from '../pages/public/public-complaint-page';
 import { PublicTrackPage } from '../pages/public/public-track-page';
@@ -21,7 +22,7 @@ import { ProtectedRoute } from '../routes/protected-route';
 
 export const router = createBrowserRouter([
   { element: <PublicLayout />, children: [
-    { path: '/', element: <Navigate to="/complaint/DEMO-SITE-QR" replace /> },
+    { path: '/', element: <HomePage /> },
     { path: '/complaint', element: <PublicComplaintPage /> },
     { path: '/complaint/:qrToken', element: <PublicComplaintPage /> },
     { path: '/track', element: <PublicTrackPage /> },

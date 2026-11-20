@@ -91,13 +91,18 @@ export class ReportsService {
     let totalTargetResolutionTime = 0;
     let resolutionCount = 0;
     tickets.forEach((t: any) => {
-      if (t.assignedAt) {
-        const start = t.assignedAt instanceof Date ? t.assignedAt.getTime() : new Date(t.assignedAt).getTime();
-        const end = t.resolvedAt ? (t.resolvedAt instanceof Date ? t.resolvedAt.getTime() : new Date(t.resolvedAt).getTime()) : now;
-        totalResolutionTime += (end - start);
-        totalTargetResolutionTime += (t.slaWorkTargetSeconds ?? 0) * 1000;
-        resolutionCount++;
-      }
+      // Kecepatan Selesai dimulai saat teknisi yang ditugaskan pertama kali
+      // check-in, bukan sejak assignment dibuat. Tiket tanpa check-in diabaikan.
+      if (!t.firstCheckinAt) return;
+
+      const start = new Date(t.firstCheckinAt).getTime();
+      // Untuk pekerjaan yang belum di-resolve, durasi tetap berjalan sampai sekarang.
+      const end = t.resolvedAt ? new Date(t.resolvedAt).getTime() : now;
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return;
+
+      totalResolutionTime += end - start;
+      totalTargetResolutionTime += (t.slaWorkTargetSeconds ?? 0) * 1000;
+      resolutionCount++;
     });
     const mttrResolutionHours = resolutionCount ? (totalResolutionTime / resolutionCount) / 3600000 : 0;
     const averageTargetResolutionHours = resolutionCount ? (totalTargetResolutionTime / resolutionCount) / 3600000 : 0;
@@ -181,11 +186,23 @@ export class ReportsService {
     const respond = ticket.slaInstances[0];
     const respondRuntime = respond ? evaluateSla(respond) : null;
     const members = ticket.assignments.flatMap((assignment: any) => assignment.members);
+    // Reopen membuat serviceCycleNo baru. Jangan gunakan check-in atau SLA
+    // dari siklus sebelumnya untuk menghitung durasi pekerjaan saat ini.
+    const currentCycleMembers = ticket.assignments
+      .filter((assignment: any) => assignment.serviceCycleNo === ticket.serviceCycleNo)
+      .flatMap((assignment: any) => assignment.members);
+    const firstCheckinAt = currentCycleMembers.reduce(
+      (earliest: Date | null, member: any) => {
+        const checkin: Date | null = member.firstCheckinAt;
+        return checkin && (!earliest || checkin.getTime() < earliest.getTime()) ? checkin : earliest;
+      },
+      null as Date | null,
+    );
 
     // Only count Work SLA for required members who have already checked in.
     // Members who are assigned but have not yet checked in are NOT_STARTED
     // and must not contribute to the aggregate until work actually begins.
-    const activeRequired = members.filter(
+    const activeRequired = currentCycleMembers.filter(
       (member: any) => member.requiredForResolution && !member.endedAt && member.firstCheckinAt,
     );
 
@@ -212,7 +229,7 @@ export class ReportsService {
       createdAt: ticket.createdAt,
       firstRespondedAt: ticket.firstRespondedAt,
       assignedAt: ticket.assignments[0]?.assignedAt,
-      firstCheckinAt: members.map((m: any) => m.firstCheckinAt).filter(Boolean).sort()[0] ?? null,
+      firstCheckinAt,
       resolvedAt: ticket.resolvedAt,
       closedAt: ticket.closedAt,
       respondedBy: ticket.responses[0]?.createdBy.displayName,

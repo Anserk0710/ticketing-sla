@@ -1,67 +1,104 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { MediaAccess, MediaContext, Prisma } from '@prisma/client';
-import { open, stat, unlink } from 'fs/promises';
-import { basename, resolve } from 'path';
-import { PrismaService } from '../../database/prisma.service';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 
-const IMAGE_MIME_TYPES: readonly string[] = [
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-];
+import {
+  MediaAccess,
+  MediaContext,
+  Prisma,
+} from '@prisma/client';
 
-const VIDEO_MIME_TYPES: readonly string[] = [
-  'video/mp4',           // Android, Windows, iPhone (H.264/H.265)
-  'video/quicktime',     // iPhone/iPad default (.mov)
-  'video/3gpp',          // Samsung & Android lama (.3gp)
-  'video/3gpp2',         // Android (.3g2)
-  'video/webm',          // Browser/Android Chrome (.webm)
-  'video/x-msvideo',     // Windows (.avi)
-  'video/x-matroska',    // MKV (.mkv)
-  'video/x-m4v',         // Apple M4V (.m4v)
-  'video/ogg',           // OGG video (.ogv)
-  'video/mpeg',          // MPEG (.mpeg, .mpg)
-];
+import {
+  randomUUID,
+} from 'crypto';
 
-const ALLOWED_UPLOAD_MIME_TYPES: readonly string[] = [
-  ...IMAGE_MIME_TYPES,
-  ...VIDEO_MIME_TYPES,
-];
+import {
+  PrismaService,
+} from '../../database/prisma.service';
+
+import {
+  ALLOWED_UPLOAD_MIME_TYPES,
+  IMAGE_MAX_SIZE_BYTES,
+  IMAGE_MIME_TYPES,
+  MEDIA_SIGNED_URL_TTL_MS,
+  VIDEO_MAX_SIZE_BYTES,
+  VIDEO_MIME_TYPES,
+  extensionForMimeType,
+  maxSizeForMimeType,
+} from './media.constants';
+
+import {
+  CreateMediaUploadDto,
+  FinalizeMediaUploadDto,
+} from './media.dto';
+
+import {
+  MediaStorageService,
+} from './storage/media-storage.service';
 
 type MediaResourceType =
-  | 'IMAGE' | 'VIDEO';
+  | 'IMAGE'
+  | 'VIDEO';
 
 type DetectedMedia = {
-  resourceType: MediaResourceType;
-  mimeType: string;
-  extension: string;
+  resourceType:
+  MediaResourceType;
+
+  mimeType:
+  string;
+
+  extension:
+  string;
 };
 
 type StoredMediaIntegrityAsset = {
-  provider: string;
-  providerPublicId: string;
-  resourceType: string;
-  mimeType: string;
-  sizeBytes: number;
+  provider:
+  string;
+
+  providerPublicId:
+  string;
+
+  resourceType:
+  string;
+
+  mimeType:
+  string;
+
+  sizeBytes:
+  number;
 };
 
 type ValidatedMediaAsset =
   StoredMediaIntegrityAsset & {
-    id: string;
-    uploadedById: string | null;
-  }
+    id:
+    string;
+
+    uploadedById:
+    string | null;
+  };
 
 @Injectable()
 export class MediaService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(
+    private readonly prisma:
+      PrismaService,
+
+    private readonly storage:
+      MediaStorageService,
+  ) { }
 
   async registerLocal(
-    file: Express.Multer.File,
-    uploadedById?: string,
+    file:
+      Express.Multer.File,
+
+    uploadedById?:
+      string,
   ) {
-    if (
-      !file
-    ) {
+    if (!file) {
       throw new BadRequestException({
         code:
           'FILE_REQUIRED',
@@ -72,25 +109,23 @@ export class MediaService {
     }
 
     try {
+      const inspected =
+        await this.storage
+          .inspectLocalUpload(
+            file.path,
+          );
+
       /*
-       * Jangan percaya:
+       * Tetap tidak percaya file.mimetype.
        *
-       * file.mimetype
-       * file.originalname extension
-       *
-       * Keduanya berasal dari client multipart.
-       *
-       * Tipe media harus ditentukan dari byte file
-       * yang benar-benar sudah tersimpan.
+       * Format ditentukan berdasarkan actual bytes.
        */
       const detected =
-        await this.detectLocalMedia(
-          file.path,
+        this.detectMediaFromHeader(
+          inspected.header,
         );
 
-      if (
-        !detected
-      ) {
+      if (!detected) {
         throw new BadRequestException({
           code:
             'MEDIA_SIGNATURE_INVALID',
@@ -100,110 +135,418 @@ export class MediaService {
         });
       }
 
-      /*
-       * Ukuran berasal dari file fisik di storage,
-       * bukan metadata client.
-       */
-      const fileStat =
-        await stat(
+      this.assertDetectedSize(
+        detected,
+        inspected.sizeBytes,
+      );
+
+      return await this.prisma
+        .mediaAsset
+        .create({
+          data: {
+            provider:
+              'LOCAL',
+
+            providerPublicId:
+              file.filename,
+
+            originalName:
+              file.originalname,
+
+            resourceType:
+              detected.resourceType,
+
+            mimeType:
+              detected.mimeType,
+
+            extension:
+              detected.extension,
+
+            sizeBytes:
+              inspected.sizeBytes,
+
+            access:
+              MediaAccess.INTERNAL,
+
+            uploadedById,
+          },
+        });
+    } catch (error) {
+      await this.storage
+        .deleteLocalUpload(
           file.path,
         );
 
-      if (
-        !fileStat.isFile()
-      ) {
-        throw new BadRequestException({
-          code:
-            'MEDIA_FILE_INVALID',
+      throw error;
+    }
+  }
 
-          message:
-            'Upload tidak menghasilkan file yang valid.',
-        });
-      }
+  async createUploadGrant(
+    dto:
+      CreateMediaUploadDto,
 
-      const maxSize =
-        detected.resourceType ===
-          'VIDEO'
-          ? 100 *
-          1024 *
-          1024
-          : 10 *
-          1024 *
-          1024;
+    uploadedById?:
+      string,
 
-      if (
-        fileStat.size >
-        maxSize
-      ) {
-        throw new BadRequestException({
-          code:
-            'MEDIA_TOO_LARGE',
+    isPublic =
+      false,
+  ) {
+    /*
+     * Development tetap compatible dengan frontend lama.
+     */
+    if (
+      this.storage
+        .isLocalMode()
+    ) {
+      return {
+        provider:
+          'LOCAL' as const,
 
-          message:
-            detected.resourceType ===
-              'VIDEO'
-              ? 'Ukuran video maksimal 100 MB.'
-              : 'Ukuran gambar maksimal 10 MB.',
-        });
-      }
+        uploadMethod:
+          'MULTIPART' as const,
 
-      /*
-       * Metadata yang disimpan berasal dari hasil
-       * deteksi backend.
-       *
-       * file.mimetype dari client TIDAK digunakan.
-       */
-      return await this.prisma.mediaAsset.create({
-        data: {
-          provider:
-            'LOCAL',
+        uploadEndpoint:
+          isPublic
+            ? '/api/v1/public/media/upload'
+            : '/api/v1/media/upload',
 
-          /*
-           * filename dibuat oleh server menggunakan UUID.
-           * Client tidak pernah menentukan providerPublicId.
-           */
-          providerPublicId:
-            file.filename,
+        actorId:
+          uploadedById ??
+          null,
 
-          /*
-           * originalName boleh disimpan untuk display/audit,
-           * tetapi tidak pernah dipercaya sebagai file type.
-           */
-          originalName:
-            file.originalname,
+        expiresAt:
+          new Date(
+            Date.now() +
+            MEDIA_SIGNED_URL_TTL_MS,
+          ),
+      };
+    }
 
-          resourceType:
-            detected.resourceType,
+    /*
+     * Direct upload membutuhkan metadata awal
+     * untuk membatasi signed URL.
+     *
+     * Metadata ini belum dianggap trusted.
+     * Actual file tetap divalidasi pada finalize.
+     */
+    const originalName =
+      dto.originalName
+        ?.trim();
 
-          mimeType:
-            detected.mimeType,
+    const contentType =
+      dto.contentType
+        ?.trim()
+        .toLowerCase();
 
-          extension:
-            detected.extension,
+    const sizeBytes =
+      dto.sizeBytes;
 
-          sizeBytes:
-            fileStat.size,
+    if (
+      !originalName ||
+      !contentType ||
+      !sizeBytes
+    ) {
+      throw new BadRequestException({
+        code:
+          'MEDIA_UPLOAD_METADATA_REQUIRED',
 
-          access:
-            MediaAccess.INTERNAL,
+        message:
+          'originalName, contentType, dan sizeBytes wajib dikirim untuk direct upload.',
+      });
+    }
 
-          uploadedById,
+    if (
+      !ALLOWED_UPLOAD_MIME_TYPES
+        .includes(
+          contentType,
+        )
+    ) {
+      throw new BadRequestException({
+        code:
+          'MEDIA_CONTENT_TYPE_UNSUPPORTED',
+
+        message:
+          'Format foto/video tidak didukung.',
+
+        details: {
+          contentType,
         },
       });
-    } catch (
-    error
-    ) {
-      /*
-       * Multer diskStorage menulis file SEBELUM
-       * registerLocal() melakukan validation.
-       *
-       * Jadi file invalid harus langsung dibuang.
-       *
-       * Ini juga mencegah orphan file ketika insert DB gagal.
-       */
-      await this.safeDelete(
-        file.path,
+    }
+
+    const maximumSizeInBytes =
+      maxSizeForMimeType(
+        contentType,
       );
+
+    if (
+      sizeBytes >
+      maximumSizeInBytes
+    ) {
+      throw new BadRequestException({
+        code:
+          'MEDIA_TOO_LARGE',
+
+        message:
+          maximumSizeInBytes ===
+            VIDEO_MAX_SIZE_BYTES
+            ? 'Ukuran video maksimal 100 MB.'
+            : 'Ukuran gambar maksimal 10 MB.',
+      });
+    }
+
+    const extension =
+      extensionForMimeType(
+        contentType,
+      );
+
+    if (!extension) {
+      throw new BadRequestException({
+        code:
+          'MEDIA_CONTENT_TYPE_UNSUPPORTED',
+
+        message:
+          'Format foto/video tidak didukung.',
+
+        details: {
+          contentType,
+        },
+      });
+    }
+
+    /*
+     * Object authenticated dipisah per user.
+     *
+     * Public complaint memiliki scope sendiri.
+     */
+    const scope =
+      isPublic
+        ? 'public'
+        : `users/${uploadedById}`;
+
+    const pathname =
+      `media/${scope}/${randomUUID()}.${extension}`;
+
+    const validUntil =
+      Date.now() +
+      MEDIA_SIGNED_URL_TTL_MS;
+
+    const grant =
+      await this.storage
+        .createDirectUpload({
+          pathname,
+          contentType,
+          maximumSizeInBytes,
+          validUntil,
+        });
+
+    return {
+      ...grant,
+
+      actorId:
+        uploadedById ??
+        null,
+
+      finalizeEndpoint:
+        isPublic
+          ? '/api/v1/public/media/finalize'
+          : '/api/v1/media/finalize',
+    };
+  }
+
+  async finalizeBlobUpload(
+    dto:
+      FinalizeMediaUploadDto,
+
+    uploadedById?:
+      string,
+
+    isPublic =
+      false,
+  ) {
+    if (
+      this.storage
+        .currentProvider() !==
+      'VERCEL_BLOB'
+    ) {
+      throw new BadRequestException({
+        code:
+          'BLOB_FINALIZE_NOT_AVAILABLE',
+
+        message:
+          'Finalize Vercel Blob hanya tersedia pada storage production.',
+      });
+    }
+
+    const expectedPrefix =
+      isPublic
+        ? 'media/public/'
+        : `media/users/${uploadedById}/`;
+
+    /*
+     * User tidak boleh finalize object milik scope user lain.
+     */
+    if (
+      !dto.providerPublicId
+        .startsWith(
+          expectedPrefix,
+        )
+    ) {
+      throw new ForbiddenException({
+        code:
+          'MEDIA_UPLOAD_SCOPE_INVALID',
+
+        message:
+          'Media tidak berada pada upload scope milik pengguna ini.',
+      });
+    }
+
+    /*
+     * Finalize idempotent.
+     */
+    const existing =
+      await this.prisma
+        .mediaAsset
+        .findUnique({
+          where: {
+            providerPublicId:
+              dto.providerPublicId,
+          },
+        });
+
+    if (existing) {
+      const expectedUploaderId =
+        uploadedById ??
+        null;
+
+      if (
+        existing.uploadedById !==
+        expectedUploaderId
+      ) {
+        throw new ForbiddenException({
+          code:
+            'MEDIA_OWNERSHIP_INVALID',
+
+          message:
+            'Media sudah terdaftar oleh uploader lain.',
+        });
+      }
+
+      return existing;
+    }
+
+    try {
+      /*
+       * Baca hanya header + metadata Blob.
+       */
+      const inspected =
+        await this.storage
+          .inspectStored(
+            'VERCEL_BLOB',
+            dto.providerPublicId,
+          );
+
+      /*
+       * Actual magic bytes tetap menjadi sumber kebenaran.
+       */
+      const detected =
+        this.detectMediaFromHeader(
+          inspected.header,
+        );
+
+      if (!detected) {
+        throw new BadRequestException({
+          code:
+            'MEDIA_SIGNATURE_INVALID',
+
+          message:
+            'Isi file bukan format foto/video yang didukung.',
+        });
+      }
+
+      this.assertDetectedSize(
+        detected,
+        inspected.sizeBytes,
+      );
+
+      /*
+       * Content-Type Vercel Blob juga harus cocok
+       * dengan magic-byte detection.
+       */
+      if (
+        inspected.contentType &&
+        inspected.contentType
+          .toLowerCase() !==
+        detected.mimeType
+      ) {
+        throw new BadRequestException({
+          code:
+            'MEDIA_CONTENT_TYPE_MISMATCH',
+
+          message:
+            'Content-Type object tidak sesuai dengan isi file.',
+
+          details: {
+            storedContentType:
+              inspected.contentType,
+
+            detectedContentType:
+              detected.mimeType,
+          },
+        });
+      }
+
+      /*
+       * Upsert membuat finalization aman bila dua request
+       * dikirim bersamaan.
+       */
+      return await this.prisma
+        .mediaAsset
+        .upsert({
+          where: {
+            providerPublicId:
+              dto.providerPublicId,
+          },
+
+          update: {},
+
+          create: {
+            provider:
+              'VERCEL_BLOB',
+
+            providerPublicId:
+              dto.providerPublicId,
+
+            originalName:
+              dto.originalName,
+
+            resourceType:
+              detected.resourceType,
+
+            mimeType:
+              detected.mimeType,
+
+            extension:
+              detected.extension,
+
+            sizeBytes:
+              inspected.sizeBytes,
+
+            access:
+              MediaAccess.INTERNAL,
+
+            uploadedById,
+          },
+        });
+    } catch (error) {
+      /*
+       * Object invalid/orphan langsung dibuang.
+       */
+      await this.storage
+        .deleteStored(
+          'VERCEL_BLOB',
+          dto.providerPublicId,
+        );
 
       throw error;
     }
@@ -525,176 +868,190 @@ export class MediaService {
     return media;
   }
 
-  async getLocalFile(
-    id: string,
+  async getAccessTarget(
+    id:
+      string,
   ) {
-    const media = await this.get(
-      id,
-    );
+    const media =
+      await this.get(
+        id,
+      );
 
     await this.assertStoredAssetIntegrity({
-      provider: media.provider,
-      providerPublicId: media.providerPublicId,
-      resourceType: media.resourceType,
-      mimeType: media.mimeType,
-      sizeBytes: media.sizeBytes,
+      provider:
+        media.provider,
+
+      providerPublicId:
+        media.providerPublicId,
+
+      resourceType:
+        media.resourceType,
+
+      mimeType:
+        media.mimeType,
+
+      sizeBytes:
+        media.sizeBytes,
     });
 
     return {
       media,
-      path: this.localPath(media.providerPublicId),
+
+      target:
+        await this.storage
+          .access(
+            media.provider,
+            media.providerPublicId,
+          ),
     };
   }
 
-  private localPath(
-    providerPublicId: string,
-  ): string {
-    if (
-      basename(
-        providerPublicId,
-      ) !==
-      providerPublicId
-    ) {
-      throw new ConflictException({
-        code: 'MEDIA_STORAGE_PATH_INVALID',
-        message: 'Path media local tidak valid.',
-      });
-    }
-
-    const uploadRoot =
-      resolve(
-        process.env.UPLOAD_DIR ??
-        resolve(
-          process.cwd(),
-          'uploads',
-        ),
-      );
-
-    return resolve(
-      uploadRoot,
-      providerPublicId,
-    );
-  }
-
   private async assertStoredAssetIntegrity(
-    asset: StoredMediaIntegrityAsset,
+    asset:
+      StoredMediaIntegrityAsset,
   ): Promise<void> {
-    if (asset.provider !== 'LOCAL') {
-      throw new BadRequestException({
-        code: 'MEDIA_PROVIDER_UNSUPPORTED',
-        message: 'Media provider belum didukung sebagai evidence.',
-        details: {
-          provider: asset.provider,
-        },
-      });
-    }
+    const inspected =
+      await this.storage
+        .inspectStored(
+          asset.provider,
+          asset.providerPublicId,
+        );
 
-    const filePath = this.localPath(asset.providerPublicId);
-    let fileStat;
-    try {
-      fileStat = await stat(filePath);
-    } catch {
-      /*
-       * Path tidak ada adalah kondisi ERROR.
-       *
-       * Jangan biarkan client tetap bisa upload media,
-       * karena itu membuat business-rule lenyap.
-       */
-      throw new ConflictException({
-        code: 'MEDIA_FILE_UNAVAILABLE',
-        message: 'File media tidak tersedia atau telah dihapus.',
-        details: {
-          providerPublicId:
-            asset.providerPublicId,
-        },
-      });
-    }
-
+    /*
+     * Database size harus sama dengan file/object sebenarnya.
+     */
     if (
-      !fileStat.isFile()
-    ) {
-      throw new ConflictException({
-        code: 'MEDIA_FILE_UNAVAILABLE',
-        message: 'File media tidak tersedia atau telah dihapus.',
-        details: {
-          providerPublicId:
-            asset.providerPublicId,
-        },
-      });
-    }
-
-    if (
-      fileStat.size !==
+      inspected.sizeBytes !==
       asset.sizeBytes
     ) {
       throw new ConflictException({
-        code: 'MEDIA_FILE_SIZE_MISMATCH',
-        message: 'Ukuran file tidak cocok dengan yang diharapkan.',
+        code:
+          'MEDIA_FILE_SIZE_MISMATCH',
+
+        message:
+          'Ukuran file tidak cocok dengan yang diharapkan.',
+
         details: {
-          expectedSize: asset.sizeBytes,
-          actualSize: fileStat.size,
+          expectedSize:
+            asset.sizeBytes,
+
+          actualSize:
+            inspected.sizeBytes,
         },
       });
     }
 
-    const detected = await this.detectLocalMedia(
-      filePath,
-    );
+    /*
+     * Magic byte tetap divalidasi baik untuk
+     * LOCAL maupun VERCEL_BLOB.
+     */
+    const detected =
+      this.detectMediaFromHeader(
+        inspected.header,
+      );
+
     if (!detected) {
       throw new ConflictException({
-        code: 'MEDIA_FILE_SIGNATURE_INVALID',
-        message: 'Isi file media tidak sesuai dengan format'
+        code:
+          'MEDIA_FILE_SIGNATURE_INVALID',
+
+        message:
+          'Isi file media tidak sesuai dengan format.',
       });
     }
 
-    const storedResourceType = asset.resourceType.toUpperCase();
+    const storedResourceType =
+      asset.resourceType
+        .toUpperCase();
 
-    if (detected.resourceType !== storedResourceType || detected.mimeType !== asset.mimeType) {
+    if (
+      detected.resourceType !==
+      storedResourceType ||
+      detected.mimeType !==
+      asset.mimeType
+    ) {
       throw new ConflictException({
-        code: 'MEDIA_FILE_METADATA_MISMATCH',
-        message: 'Isi file media tidak sesua dengan metadata yang tersimpan.',
+        code:
+          'MEDIA_FILE_METADATA_MISMATCH',
+
+        message:
+          'Isi file media tidak sesuai dengan metadata yang tersimpan.',
+
         details: {
           stored: {
-            resourceType: asset.resourceType,
-            mimeType: asset.mimeType,
+            resourceType:
+              asset.resourceType,
+
+            mimeType:
+              asset.mimeType,
           },
+
           detected: {
-            resourceType: detected.resourceType,
-            mimeType: detected.mimeType,
+            resourceType:
+              detected.resourceType,
+
+            mimeType:
+              detected.mimeType,
           },
+        },
+      });
+    }
+
+    /*
+     * LOCAL tidak memiliki object Content-Type,
+     * sehingga nilainya null dan block ini dilewati.
+     */
+    if (
+      inspected.contentType &&
+      inspected.contentType
+        .toLowerCase() !==
+      asset.mimeType
+    ) {
+      throw new ConflictException({
+        code:
+          'MEDIA_FILE_CONTENT_TYPE_MISMATCH',
+
+        message:
+          'Content-Type object media tidak sesuai dengan metadata.',
+
+        details: {
+          storedMimeType:
+            asset.mimeType,
+
+          objectContentType:
+            inspected.contentType,
         },
       });
     }
   }
 
-  private async detectLocalMedia(
-    filePath: string,
-  ): Promise<DetectedMedia | null> {
-    const handle = await open(
-      filePath,
-      'r',
-    );
+  private assertDetectedSize(
+    detected:
+      DetectedMedia,
 
-    try {
-      const buffer = Buffer.alloc(8192);
-      const { bytesRead } = await handle.read(
-        buffer,
-        0,
-        buffer.length,
-        0,
-      );
+    sizeBytes:
+      number,
+  ): void {
+    const maximumSize =
+      detected.resourceType ===
+        'VIDEO'
+        ? VIDEO_MAX_SIZE_BYTES
+        : IMAGE_MAX_SIZE_BYTES;
 
-      const header =
-        buffer.subarray(
-          0,
-          bytesRead,
-        );
+    if (
+      sizeBytes >
+      maximumSize
+    ) {
+      throw new BadRequestException({
+        code:
+          'MEDIA_TOO_LARGE',
 
-      return this.detectMediaFromHeader(
-        header,
-      );
-    } finally {
-      await handle.close();
+        message:
+          detected.resourceType ===
+            'VIDEO'
+            ? 'Ukuran video maksimal 100 MB.'
+            : 'Ukuran gambar maksimal 10 MB.',
+      });
     }
   }
 
@@ -1304,23 +1661,6 @@ export class MediaService {
     }
 
     return null;
-  }
-
-  private async safeDelete(
-    filePath: string,
-  ): Promise<void> {
-    try {
-      await unlink(
-        filePath,
-      );
-    } catch {
-      /*
-       * Cleanup bersifat best-effort.
-       *
-       * Error asli validation/database tidak boleh
-       * tertimpa hanya karena cleanup file gagal.
-       */
-    }
   }
 
   private assertMediaCount(

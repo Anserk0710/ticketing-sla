@@ -1,0 +1,61 @@
+# Node modules - largest contributor to file size
+node_modules
+**/node_modules
+
+# Build outputs
+dist
+**/dist
+build
+**/build
+
+# Development & CI artifacts
+.turbo
+**/.turbo
+coverage
+**/coverage
+.vite
+**/.vite
+
+# Uploads & runtime data
+apps/api/uploads
+runtime
+
+# Git & CI
+.git
+.github
+
+# Environment files (sensitive)
+.env
+.env.*
+!.env.example
+!**/.env.example
+!**/.env.production.example
+
+# pnpm local store
+.pnpm-store
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+api-logs.txt
+
+# Archives & backups
+*.zip
+backup
+
+# Docs (not needed at runtime)
+docs
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Infra / Docker (not needed on Vercel)
+infra
+docker-compose*.yml
+
+# Misc markdown docs (optional, saves space)
+*.md

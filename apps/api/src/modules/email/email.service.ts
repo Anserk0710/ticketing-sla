@@ -42,6 +42,60 @@ export class EmailService {
         }
     }
 
+    async sendPasswordResetEmail(email: string, token: string): Promise<EmailSendResult> {
+        if (!this.transporter || !this.from) {
+            this.logger.warn('Password-reset email disabled: SMTP configuration is incomplete.');
+            return { status: 'DISABLED', recipientCount: 0 };
+        }
+
+        const targetUrl = `${this.webBaseUrl}/reset-password?token=${encodeURIComponent(token)}`;
+        const safeUrl = this.escapeHtml(targetUrl);
+
+        try {
+            const info = await this.transporter.sendMail({
+                from: this.from,
+                to: email,
+                subject: '[Ticketing SLA] Instruksi reset password',
+                text: [
+                    'Kami menerima permintaan reset password akun Ticketing SLA Anda.',
+                    '',
+                    `Buka tautan berikut untuk membuat password baru: ${targetUrl}`,
+                    '',
+                    'Tautan berlaku selama 30 menit sejak permintaan dibuat dan hanya dapat digunakan satu kali.',
+                    'Jika Anda tidak meminta reset password, abaikan email ini. Password Anda tidak berubah sebelum reset diselesaikan.',
+                ].join('\n'),
+                html: `<!doctype html>
+<html lang="id">
+  <body style="margin:0;padding:24px;background:#f7f9fb;font-family:Arial,sans-serif;color:#0f172a;">
+    <div style="max-width:600px;margin:0 auto;padding:24px;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;">
+      <h1 style="font-size:22px;color:#022b3a;">Reset password Ticketing SLA</h1>
+      <p>Kami menerima permintaan reset password akun Anda.</p>
+      <p><a href="${safeUrl}" style="display:inline-block;padding:12px 18px;border-radius:10px;background:#1f7a8c;color:#ffffff;text-decoration:none;font-weight:bold;">Buat password baru</a></p>
+      <p>Tautan berlaku selama <strong>30 menit</strong> sejak permintaan dibuat dan hanya dapat digunakan satu kali.</p>
+      <p>Jika tombol tidak dapat dibuka, salin tautan berikut ke browser:</p>
+      <p style="word-break:break-all;">${safeUrl}</p>
+      <p>Jika Anda tidak meminta reset password, abaikan email ini. Password Anda tidak berubah sebelum reset diselesaikan.</p>
+    </div>
+  </body>
+</html>`,
+            }) as SmtpSendInfo;
+
+            const accepted = this.countSmtpRecipients(info.accepted);
+            if (accepted === 0) {
+                this.logger.warn('Password-reset email was not accepted by SMTP.');
+                return { status: 'FAILED', recipientCount: 0 };
+            }
+
+            this.logger.log('Password-reset email accepted by SMTP.');
+            return { status: 'SENT', recipientCount: accepted };
+        } catch (error) {
+            // Do not log the message body, reset token, or SMTP credentials.
+            const smtpError = error as { code?: string; responseCode?: number } | null;
+            this.logger.error(`Password-reset email failed: code=${smtpError?.code ?? 'UNKNOWN'} responseCode=${smtpError?.responseCode ?? 'UNKNOWN'}`);
+            return { status: 'FAILED', recipientCount: 0 };
+        }
+    }
+
     async sendNewTicketNotification(
         ticketId: string,
     ): Promise<EmailSendResult> {
@@ -53,43 +107,80 @@ export class EmailService {
         }
 
         try {
-            const [ticket, recipients] = await Promise.all([
-                this.prisma.ticket.findUnique({
-                    where: {
-                        id: ticketId,
-                    },
-                    include: {
-                        site: {
-                            include: {
-                                client: true,
-                            },
+            const ticket =
+                await this.prisma
+                    .ticket
+                    .findUnique({
+                        where: {
+                            id:
+                                ticketId,
                         },
-                        category: true,
-                        priority: true,
-                    },
-                }),
 
-                this.prisma.user.findMany({
-                    where: {
-                        status: UserStatus.APPROVED,
-                        roles: {
-                            some: {
-                                role: {
-                                    name: {
-                                        in: [
-                                            'ADMINISTRATOR',
-                                            'HEAD',
-                                        ],
+                        include: {
+                            site: {
+                                include: {
+                                    client:
+                                        true,
+                                },
+                            },
+
+                            category:
+                                true,
+
+                            priority:
+                                true,
+                        },
+                    });
+
+            if (!ticket) {
+                this.logger.warn(
+                    `New-ticket email skipped because ticket ${ticketId} was not found.`,
+                );
+
+                return {
+                    status:
+                        'SKIPPED',
+
+                    recipientCount:
+                        0,
+                };
+            }
+
+            /*
+             * Query recipient dilakukan SETELAH
+             * query ticket selesai.
+             *
+             * Jangan Promise.all(), supaya satu
+             * email notification tidak meminta
+             * beberapa Prisma connection sekaligus.
+             */
+            const recipients =
+                await this.prisma
+                    .user
+                    .findMany({
+                        where: {
+                            status:
+                                UserStatus.APPROVED,
+
+                            roles: {
+                                some: {
+                                    role: {
+                                        name: {
+                                            in: [
+                                                'ADMINISTRATOR',
+                                                'HEAD',
+                                            ],
+                                        },
                                     },
                                 },
                             },
                         },
-                    },
-                    select: {
-                        email: true,
-                    },
-                }),
-            ]);
+
+                        select: {
+                            email:
+                                true,
+                        },
+                    });
 
             if (!ticket) {
                 this.logger.warn(`New-ticket email skipped because ticket ${ticketId} was not found.`);

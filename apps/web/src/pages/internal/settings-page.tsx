@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Check, ChevronDown, ChevronUp, Copy, Edit2, ExternalLink,
+  Check, ChevronDown, ChevronUp, Copy, Download, Edit2, ExternalLink,
   MapPin, Plus, QrCode, RefreshCw, Trash2, X
 } from 'lucide-react';
+import QRCode from 'qrcode';
 import { Fragment, useState } from 'react';
 import { apiRequest } from '../../api/http-client';
 import { PageHeader } from '../../components/data-display/page-header';
@@ -49,6 +50,63 @@ function CopyBtn({ text }: { text: string }) {
       {ok ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
     </button>
   );
+}
+
+/*
+ * Download QR Code sebagai gambar PNG.
+ * Menggambar QR code + teks token + nama site ke canvas,
+ * lalu trigger download langsung di browser.
+ */
+async function downloadQr(
+  token: string,
+  siteName: string,
+  complaintUrl: string,
+) {
+  const QR_SIZE = 280;
+  const PADDING = 20;
+  const LABEL_HEIGHT = 52;
+  const CANVAS_W = QR_SIZE + PADDING * 2;
+  const CANVAS_H = QR_SIZE + PADDING * 2 + LABEL_HEIGHT;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = CANVAS_W;
+  canvas.height = CANVAS_H;
+
+  const ctx = canvas.getContext('2d')!;
+
+  /* Latar putih */
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+  /* Gambar QR ke offscreen canvas lalu salin ke canvas utama */
+  const qrCanvas = document.createElement('canvas');
+  await QRCode.toCanvas(qrCanvas, complaintUrl, {
+    width: QR_SIZE,
+    margin: 1,
+    color: { dark: '#1a1a2e', light: '#ffffff' },
+  });
+  ctx.drawImage(qrCanvas, PADDING, PADDING);
+
+  /* Teks nama site */
+  ctx.fillStyle = '#374151';
+  ctx.font = 'bold 13px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(
+    siteName.length > 36 ? siteName.slice(0, 33) + '…' : siteName,
+    CANVAS_W / 2,
+    QR_SIZE + PADDING + 20,
+  );
+
+  /* Teks token QR */
+  ctx.fillStyle = '#6b7280';
+  ctx.font = '11px monospace';
+  ctx.fillText(token, CANVAS_W / 2, QR_SIZE + PADDING + 38);
+
+  /* Trigger download */
+  const link = document.createElement('a');
+  link.download = `QR-${token}.png`;
+  link.href = canvas.toDataURL('image/png');
+  link.click();
 }
 
 function InlineForm({ title, error, onClose, children }: { title: string; error?: Error | null; onClose: () => void; children: React.ReactNode }) {
@@ -379,6 +437,25 @@ function SitesTab() {
                               </a>
                             </div>
                             <Badge value={qr.isActive ? 'ACTIVE' : 'INACTIVE'} />
+                          </div>
+
+                          {/* Button Download QR */}
+                          <div className="mt-3 border-t border-iron-grey-100 pt-3">
+                            <button
+                              id={`btn-download-qr-${qr.id}`}
+                              type="button"
+                              onClick={() =>
+                                void downloadQr(
+                                  qr.token,
+                                  item.name,
+                                  `${window.location.origin}/complaint/${qr.token}`,
+                                )
+                              }
+                              className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-iron-grey-200 bg-iron-grey-50 px-3 py-2 text-xs font-semibold text-charcoal-700 transition hover:bg-alice-blue-50 hover:border-alice-blue-200 hover:text-alice-blue-700"
+                            >
+                              <Download className="h-3.5 w-3.5" />
+                              Download QR
+                            </button>
                           </div>
                         </div>
                       ))}

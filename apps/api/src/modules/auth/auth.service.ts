@@ -7,6 +7,7 @@ import { createHash, randomBytes, randomUUID } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { AuthUser } from '../../common/types/auth-user';
 import { AuditService } from '../audit/audit.service';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class AuthService {
@@ -14,7 +15,8 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
+    private readonly email: EmailService
   ) {}
 
   async login(email: string, password: string, metadata?: { ip?: string; userAgent?: string }) {
@@ -88,12 +90,13 @@ export class AuthService {
       const token = randomBytes(32).toString('hex');
       developmentToken = token;
       await this.prisma.passwordResetToken.create({ data: { userId: user.id, tokenHash: this.hash(token), expiresAt: new Date(Date.now() + 30 * 60 * 1000), requestedIp } });
-      await this.audit.write({ actorUserId: user.id, action: 'AUTH_PASSWORD_RESET_REQUESTED', resourceType: 'user', resourceId: user.id, ipAddress: requestedIp });
-      console.info(`[DEV PASSWORD RESET] ${user.email}: ${token}`);
+      // Await SMTP so serverless runtimes do not end the request before sending.
+      const delivery = await this.email.sendPasswordResetEmail(user.email, token);
+      await this.audit.write({ actorUserId: user.id, action: 'AUTH_PASSWORD_RESET_REQUESTED', resourceType: 'user', resourceId: user.id, ipAddress: requestedIp, after: { emailStatus: delivery.status } });
     }
     return {
       message: 'Jika email terdaftar, instruksi reset password akan dikirim.',
-      ...(this.config.get('NODE_ENV') !== 'production' && developmentToken ? { developmentToken } : {})
+      ...(this.config.get('NODE_ENV') !== 'production' && this.config.get('APP_ENV') !== 'PRODUCTION' && developmentToken ? { developmentToken } : {})
     };
   }
 

@@ -550,7 +550,7 @@ model SlaInstance {
   events                  SlaEvent[]
   @@unique([slaType, ticketId, serviceCycleNo])
   @@unique([slaType, assignmentMemberId])
-  @@index([status, dueAt])
+  @@index([status, warningAt])
   @@map("sla_instances")
 }
 

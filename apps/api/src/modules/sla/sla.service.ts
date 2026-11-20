@@ -1,9 +1,15 @@
 import { ConflictException, Injectable } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
 import { NotificationType, Prisma, SlaEventType, SlaOutcome, SlaStatus, SlaType } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { addSeconds, evaluateSla } from '../../common/utils/sla';
 import { NotificationsService } from '../notifications/notifications.service';
+
+export type SlaEvaluationSummary = {
+  processed: number;
+  updated: number;
+  warning: number;
+  breached: number;
+}
 
 const ACTIVE_SLA_STATUSES: SlaStatus[] = [
   SlaStatus.OPEN,
@@ -417,48 +423,335 @@ export class SlaService {
     return { ...instance, runtime: evaluateSla(instance) };
   }
 
-  @Cron(CronExpression.EVERY_MINUTE)
-  async evaluateOpenInstances(): Promise<void> {
-    const now = new Date();
-    const instances = await this.prisma.slaInstance.findMany({
-      where: { status: { in: ACTIVE_SLA_STATUSES }, completedAt: null, endedAt: null },
-      include: {
-        ticket: { select: { id: true, ticketCode: true } },
-        assignmentMember: { include: { technician: { select: { id: true } }, assignment: { include: { ticket: { select: { id: true, ticketCode: true } } } } } }
-      }
-    });
-    for (const instance of instances) {
-      const runtime = evaluateSla({ ...instance, now });
-      if (runtime.status === instance.status) continue;
-      await this.prisma.$transaction(async (tx) => {
-        await tx.slaInstance.update({
-          where: { id: instance.id },
-          data: {
-            status: runtime.status,
-            breachedAt: runtime.status === SlaStatus.BREACHED ? instance.breachedAt ?? instance.dueAt : instance.breachedAt,
-            breachSeconds: runtime.breachSeconds,
-            events: { create: { type: runtime.status === SlaStatus.WARNING ? SlaEventType.WARNING : SlaEventType.BREACHED } }
-          }
+  async evaluateOpenInstances():
+    Promise<SlaEvaluationSummary> {
+    const now =
+      new Date();
+
+    /*
+     * Tidak lagi mengambil semua OPEN/WARNING/BREACHED.
+     *
+     * OPEN hanya perlu diperiksa ketika warningAt
+     * sudah tercapai.
+     *
+     * WARNING hanya perlu diperiksa ketika dueAt
+     * sudah dilewati.
+     *
+     * BREACHED tidak memiliki transisi waktu
+     * berikutnya sehingga tidak perlu dibaca lagi.
+     */
+    const instances =
+      await this.prisma
+        .slaInstance
+        .findMany({
+          where: {
+            completedAt: null,
+            endedAt: null,
+
+            OR: [
+              {
+                status:
+                  SlaStatus.OPEN,
+
+                warningAt: {
+                  lte: now,
+                },
+              },
+
+              {
+                status:
+                  SlaStatus.WARNING,
+
+                /*
+                 * evaluateSla() Anda menggunakan:
+                 * now > dueAt
+                 *
+                 * sehingga di sini juga memakai lt.
+                 */
+                dueAt: {
+                  lt: now,
+                },
+              },
+            ],
+          },
+
+          include: {
+            ticket: {
+              select: {
+                id: true,
+                ticketCode: true,
+              },
+            },
+
+            assignmentMember: {
+              include: {
+                technician: {
+                  select: {
+                    id: true,
+                  },
+                },
+
+                assignment: {
+                  include: {
+                    ticket: {
+                      select: {
+                        id: true,
+                        ticketCode: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+
+          orderBy: [
+            {
+              dueAt: 'asc',
+            },
+            {
+              warningAt: 'asc',
+            },
+          ],
         });
-        if (instance.slaType === SlaType.RESPOND && instance.ticket) {
-          await this.notifications.notifyRoles(['ADMINISTRATOR', 'HEAD'], {
-            type: runtime.status === SlaStatus.WARNING ? NotificationType.SLA_RESPOND_WARNING : NotificationType.SLA_RESPOND_BREACHED,
-            title: runtime.status === SlaStatus.WARNING ? 'SLA Respond mendekati batas' : 'SLA Respond terlewati',
-            body: `Ticket ${instance.ticket.ticketCode} memerlukan respons.`,
-            relatedType: 'ticket', relatedId: instance.ticket.id, eventKey: `sla-${instance.id}-${runtime.status}`
-          }, tx);
-        }
-        if (instance.slaType === SlaType.WORK && instance.assignmentMember) {
-          await this.notifications.createUnique({
-            recipientUserId: instance.assignmentMember.technician.id,
-            type: runtime.status === SlaStatus.WARNING ? NotificationType.SLA_WORK_WARNING : NotificationType.SLA_WORK_BREACHED,
-            title: runtime.status === SlaStatus.WARNING ? 'SLA pekerjaan mendekati batas' : 'SLA pekerjaan terlewati',
-            body: `Assignment ${instance.assignmentMember.assignment.ticket.ticketCode} memerlukan tindakan.`,
-            relatedType: 'assignment_member', relatedId: instance.assignmentMember.id,
-            uniqueEventKey: `sla-${instance.id}-${runtime.status}-${instance.assignmentMember.technician.id}`
-          }, tx);
-        }
-      });
+
+    const summary:
+      SlaEvaluationSummary = {
+      processed:
+        instances.length,
+
+      updated:
+        0,
+
+      warning:
+        0,
+
+      breached:
+        0,
+    };
+
+    for (
+      const instance
+      of instances
+    ) {
+      /*
+       * Runtime status tetap ditentukan
+       * dari timestamps.
+       *
+       * Karena itu cron terlambat 10 menit
+       * tidak membuat perhitungan SLA salah.
+       */
+      const runtime =
+        evaluateSla({
+          ...instance,
+          now,
+        });
+
+      if (
+        runtime.status ===
+        instance.status
+      ) {
+        continue;
+      }
+
+      if (
+        runtime.status !==
+        SlaStatus.WARNING &&
+        runtime.status !==
+        SlaStatus.BREACHED
+      ) {
+        continue;
+      }
+
+      const changed =
+        await this.prisma
+          .$transaction(
+            async (tx) => {
+              /*
+               * Compare-and-set.
+               *
+               * Jika dua scheduler request datang hampir
+               * bersamaan, hanya request yang berhasil
+               * mengubah status lama yang boleh membuat
+               * event/notifikasi.
+               */
+              const updateResult =
+                await tx.slaInstance
+                  .updateMany({
+                    where: {
+                      id:
+                        instance.id,
+
+                      status:
+                        instance.status,
+
+                      completedAt:
+                        null,
+
+                      endedAt:
+                        null,
+                    },
+
+                    data: {
+                      status:
+                        runtime.status,
+
+                      breachedAt:
+                        runtime.status ===
+                          SlaStatus.BREACHED
+                          ? instance.breachedAt ??
+                          instance.dueAt
+                          : instance.breachedAt,
+
+                      breachSeconds:
+                        runtime.breachSeconds,
+                    },
+                  });
+
+              /*
+               * Record sudah diubah evaluator lain.
+               */
+              if (
+                updateResult.count !==
+                1
+              ) {
+                return false;
+              }
+
+              await tx.slaEvent.create({
+                data: {
+                  slaInstanceId:
+                    instance.id,
+
+                  type:
+                    runtime.status ===
+                      SlaStatus.WARNING
+                      ? SlaEventType.WARNING
+                      : SlaEventType.BREACHED,
+                },
+              });
+
+              /*
+               * SLA Respond.
+               */
+              if (
+                instance.slaType ===
+                SlaType.RESPOND &&
+                instance.ticket
+              ) {
+                await this.notifications
+                  .notifyRoles(
+                    [
+                      'ADMINISTRATOR',
+                      'HEAD',
+                    ],
+
+                    {
+                      type:
+                        runtime.status ===
+                          SlaStatus.WARNING
+                          ? NotificationType.SLA_RESPOND_WARNING
+                          : NotificationType.SLA_RESPOND_BREACHED,
+
+                      title:
+                        runtime.status ===
+                          SlaStatus.WARNING
+                          ? 'SLA Respond mendekati batas'
+                          : 'SLA Respond terlewati',
+
+                      body:
+                        `Ticket ${instance.ticket.ticketCode} memerlukan respons.`,
+
+                      relatedType:
+                        'ticket',
+
+                      relatedId:
+                        instance.ticket.id,
+
+                      eventKey:
+                        `sla-${instance.id}-${runtime.status}`,
+                    },
+
+                    tx,
+                  );
+              }
+
+              /*
+               * SLA Work.
+               */
+              if (
+                instance.slaType ===
+                SlaType.WORK &&
+                instance.assignmentMember
+              ) {
+                await this.notifications
+                  .createUnique(
+                    {
+                      recipientUserId:
+                        instance
+                          .assignmentMember
+                          .technician
+                          .id,
+
+                      type:
+                        runtime.status ===
+                          SlaStatus.WARNING
+                          ? NotificationType.SLA_WORK_WARNING
+                          : NotificationType.SLA_WORK_BREACHED,
+
+                      title:
+                        runtime.status ===
+                          SlaStatus.WARNING
+                          ? 'SLA pekerjaan mendekati batas'
+                          : 'SLA pekerjaan terlewati',
+
+                      body:
+                        `Assignment ${instance.assignmentMember.assignment.ticket.ticketCode} ` +
+                        'memerlukan tindakan.',
+
+                      relatedType:
+                        'assignment_member',
+
+                      relatedId:
+                        instance
+                          .assignmentMember
+                          .id,
+
+                      uniqueEventKey:
+                        `sla-${instance.id}-${runtime.status}-` +
+                        instance
+                          .assignmentMember
+                          .technician
+                          .id,
+                    },
+
+                    tx,
+                  );
+              }
+
+              return true;
+            },
+          );
+
+      if (!changed) {
+        continue;
+      }
+
+      summary.updated +=
+        1;
+
+      if (
+        runtime.status ===
+        SlaStatus.WARNING
+      ) {
+        summary.warning +=
+          1;
+      } else {
+        summary.breached +=
+          1;
+      }
     }
+
+    return summary;
   }
 }

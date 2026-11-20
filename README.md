@@ -1,246 +1,440 @@
-# Ticketing SLA
+﻿# 🎫 Ticketing SLA
 
-Monorepo MVP **Sistem Ticketing, Field Service, SLA Respond, dan SLA Pengerjaan** berdasarkan seluruh spesifikasi pada folder [`docs`](docs/).
+> **Sistem Ticketing, Field Service, SLA Respond, dan SLA Pengerjaan**
 
-## Teknologi
+Monorepo full-stack berbasis **NestJS** (backend) dan **React/Vite** (frontend) untuk manajemen tiket layanan lapangan, penugasan teknisi multi-assign, monitoring SLA respond & pengerjaan, serta pelaporan dan notifikasi terintegrasi.
 
-- Frontend: React, Vite, TypeScript, Tailwind CSS, TanStack Query, React Router
-- Backend: NestJS, Prisma, PostgreSQL, JWT, Swagger
-- Report: ExcelJS
-- Deployment: Docker Compose dan Nginx
+[![Version](https://img.shields.io/badge/version-1.0.5-blue.svg)](CHANGELOG.md)
+[![Node.js](https://img.shields.io/badge/node-22.x-brightgreen.svg)](https://nodejs.org)
+[![License](https://img.shields.io/badge/license-private-red.svg)]()
 
-## Fitur utama
+---
 
-- Pengaduan publik berbasis QR dan tracking ticket.
-- RBAC Administrator, Head, dan Technician.
-- Approval teknisi dan password sementara wajib diganti.
-- Workflow ticket lengkap dan assignment multi-teknisi.
-- Check-in GPS, start work, completion, dan bukti media.
-- SLA Respond per ticket serta SLA Pengerjaan per teknisi.
-- Notification, audit trail, dashboard, report, dan export Excel.
+## 📑 Daftar Isi
 
-Rincian cakupan dan batas adapter demo tersedia di [`IMPLEMENTATION-NOTES.md`](IMPLEMENTATION-NOTES.md).
+- [Fitur Utama](#-fitur-utama)
+- [Teknologi](#-teknologi)
+- [Struktur Repository](#-struktur-repository)
+- [Prasyarat](#-prasyarat)
+- [Menjalankan dengan Docker (Cara Cepat)](#-menjalankan-dengan-docker-cara-cepat)
+- [Menjalankan Secara Lokal](#-menjalankan-secara-lokal)
+- [Konfigurasi Environment](#-konfigurasi-environment)
+- [Perintah Penting](#-perintah-penting)
+- [Akun & Data Demo](#-akun--data-demo)
+- [Akses Aplikasi](#-akses-aplikasi)
+- [Akses LAN dengan Hostname](#-akses-lan-dengan-hostname)
+- [Status Implementasi](#-status-implementasi)
+- [Changelog](#-changelog)
 
-## Cara cepat: Docker
+---
 
-Persyaratan: Docker Engine dan Docker Compose.
+## ✨ Fitur Utama
 
-Ekstrak release ke folder baru agar file lama dari release sebelumnya tidak tercampur. PostgreSQL pada konfigurasi Docker **tidak dipublikasikan ke port host**, sehingga tidak akan bentrok dengan PostgreSQL lokal atau container lain pada port `5432`.
+| Modul | Deskripsi |
+|---|---|
+| 🌐 **Public Complaint** | Portal pengaduan publik berbasis QR code dengan multi-upload media |
+| 🔐 **Autentikasi & RBAC** | JWT rotating refresh token, role Administrator/Head/Technician, approval & password sementara |
+| 🎫 **Manajemen Ticket** | Lifecycle ticket lengkap: PENDING → IN_PROGRESS → COMPLETED, reschedule & resume |
+| 👷 **Field Operations** | Check-in GPS, start work, completion, dan bukti foto/video oleh teknisi |
+| 👥 **Multi-Assignment** | Penugasan beberapa teknisi sekaligus pada satu ticket |
+| ⏱️ **SLA Monitoring** | SLA Respond & SLA Pengerjaan per teknisi dengan scheduler, warning, breach, dan historisasi |
+| 📧 **Notifikasi & Email** | Notifikasi in-app + email HTML ke Head/Admin saat ticket baru masuk (via SMTP/Nodemailer) |
+| 📊 **Dashboard & Report** | Dashboard ringkasan, laporan, dan export Excel (ExcelJS) |
+| 🔍 **Audit Trail** | Log perubahan status dan aksi pada setiap ticket |
+| 🏥 **Health Check** | Endpoint `/health/live` dan `/health/ready` untuk monitoring deployment |
 
-PowerShell:
+---
 
+## 🛠️ Teknologi
+
+### Backend (`apps/api`)
+
+| Teknologi | Versi | Kegunaan |
+|---|---|---|
+| **NestJS** | `^10.4` | REST API framework (modular, DI, Guard) |
+| **Prisma** | `^6.6` | ORM + schema database + migration |
+| **PostgreSQL** | `16` | Database relasional utama |
+| **JWT + Passport** | `^10.2` | Autentikasi access & refresh token |
+| **Nodemailer** | `^9.0` | Pengiriman email notifikasi via SMTP |
+| **ExcelJS** | `^4.4` | Export laporan ke format Excel |
+| **Multer** | `^1.4` | Upload file/foto/video |
+| **Vercel Blob** | `^2.8` | Storage media production (opsional) |
+| **Helmet** | `^8.1` | Security headers HTTP |
+| **Swagger** | `^8.1` | Dokumentasi API otomatis |
+| **Throttler** | `^6.4` | Rate limiting per endpoint |
+
+### Frontend (`apps/web`)
+
+| Teknologi | Versi | Kegunaan |
+|---|---|---|
+| **React** | `^18` | UI framework |
+| **Vite** | `^5` | Build tool & dev server |
+| **TypeScript** | `5.8.3` | Type safety |
+| **Tailwind CSS** | `^3` | Utility-first CSS framework |
+| **TanStack Query** | `^5` | Server state & data fetching |
+| **React Router** | `^6` | Routing SPA |
+
+### Shared (`packages/contracts`)
+
+- **TypeScript interfaces** — DTO request/response bersama antara API dan Web
+- **Enums standar** — `TicketStatus`, `Role`, dsb.
+
+### Infrastruktur
+
+- **Docker Compose** + **Nginx** — deployment container siap pakai
+- **Vercel** — deployment cloud (API + Web)
+- **TLS/HTTPS** — sertifikat lokal untuk LAN
+
+---
+
+## 📁 Struktur Repository
+
+```text
+ticketing-sla/
+├── apps/
+│   ├── api/                          # Backend REST API
+│   │   ├── prisma/                   # Schema database, seed, dan migration
+│   │   └── src/
+│   │       ├── config/               # Validasi environment & variabel global
+│   │       ├── database/             # Prisma service & transaksi
+│   │       ├── common/               # Guard, interceptor, decorator, exception filter
+│   │       └── modules/              # Domain-driven feature modules
+│   │           ├── auth/             # JWT autentikasi & RBAC
+│   │           ├── tickets/          # Lifecycle ticket & rescue/reschedule
+│   │           ├── assignments/      # Multi-assign teknisi per ticket
+│   │           ├── field-operations/ # Check-in GPS, start, completion
+│   │           ├── sla/              # SLA respond & pengerjaan + scheduler
+│   │           ├── technicians/      # Profil & approval akun teknisi
+│   │           ├── media/            # Upload & validasi foto/video
+│   │           ├── notifications/    # Notifikasi in-app
+│   │           ├── email/            # Notifikasi email via SMTP (Nodemailer)
+│   │           ├── reports/          # Laporan & export Excel
+│   │           ├── audit/            # Audit trail aksi ticket
+│   │           ├── master-data/      # Data master (client, site, kategori, prioritas)
+│   │           └── health/           # Health check endpoint
+│   │
+│   └── web/                          # Frontend Web SPA
+│       └── src/
+│           ├── api/                  # Axios client & central API caller
+│           ├── components/           # Reusable UI components
+│           ├── features/             # Business logic modular (slice)
+│           ├── hooks/                # Custom React hooks
+│           ├── pages/
+│           │   ├── admin/            # Dashboard, laporan, manajemen (Admin/Head)
+│           │   ├── technician/       # Operasional, task, check-in (Teknisi)
+│           │   └── public/           # Portal klien (complaint & tracking)
+│           ├── routes/               # Konfigurasi & proteksi React Router
+│           ├── store/                # Global state lokal
+│           ├── types/                # Type internal frontend
+│           └── utils/                # Utilitas (formatter, konversi, dsb.)
+│
+├── packages/
+│   └── contracts/                    # Shared TypeScript DTO & enums (monorepo)
+│
+├── infra/
+│   └── nginx/                        # Konfigurasi reverse proxy Docker
+│
+├── scripts/                          # Script automasi developer
+│   ├── setup.sh / setup.ps1          # Inisialisasi environment otomatis
+│   ├── docker-seed.ps1               # Inject data demo ke database Docker
+│   ├── docker-status.ps1             # Cek status & log container Docker
+│   └── smoke-check.sh                # Sanity check environment
+│
+├── docs/                             # Spesifikasi sistem (PRD, flowchart)
+├── docker-compose.yml                # Konfigurasi Docker Compose utama
+├── docker-compose.local.yml          # Override Docker untuk development lokal
+├── .env.example                      # Template variabel environment
+├── CHANGELOG.md                      # Riwayat perubahan per versi
+└── IMPLEMENTATION-NOTES.md           # Catatan asumsi teknis & cakupan MVP
+```
+
+---
+
+## ✅ Prasyarat
+
+### Untuk Docker (Direkomendasikan)
+
+- Docker Engine dan Docker Compose
+
+### Untuk Development Lokal
+
+- **Node.js** `22.x`
+- **npm** `10+`
+- **PostgreSQL** `16+` (atau gunakan Docker hanya untuk database)
+
+---
+
+## 🐳 Menjalankan dengan Docker (Cara Cepat)
+
+> PostgreSQL pada konfigurasi Docker **tidak dipublikasikan ke port host**, sehingga tidak bentrok dengan PostgreSQL lokal atau container lain.
+
+### 1. Salin dan konfigurasi environment
+
+**PowerShell:**
 ```powershell
 Copy-Item .env.example .env
-docker compose down --remove-orphans
-docker compose build --no-cache
-docker compose up -d --wait
-docker compose ps
 ```
 
-Bash:
-
+**Bash:**
 ```bash
 cp .env.example .env
+```
+
+### 2. Build dan jalankan seluruh service
+
+```bash
 docker compose down --remove-orphans
 docker compose build --no-cache
 docker compose up -d --wait
 docker compose ps
 ```
 
-API melakukan bootstrap schema secara otomatis dengan retry ketika PostgreSQL baru mulai. Setelah semua service `healthy`, isi data demo satu kali. Perintah ini tetap bekerja walaupun container API sebelumnya belum berjalan:
+### 3. Isi data demo (jalankan sekali saja)
 
 ```powershell
+# PowerShell
 ./scripts/docker-seed.ps1
 ```
 
-atau secara langsung:
-
 ```bash
+# Bash
 docker compose run --rm api node prisma/seed.js
 ```
 
-Akses:
-
-- Web demo: `https://ticketing-demo.test`
-- API demo: `https://ticketing-demo.test/api/v1`
-- Swagger demo: `https://ticketing-demo.test/docs`
-- Health live: `https://ticketing-demo.test/api/v1/health/live`
-- Health ready: `https://ticketing-demo.test/api/v1/health/ready`
-
-Jika port host `80` atau `443` sudah dipakai, ubah `WEB_HTTP_PORT` atau `WEB_HOST_PORT` di `.env`, lalu jalankan kembali `docker compose up -d --force-recreate`.
-
-### Akses LAN dengan hostname
-
-Aplikasi tidak lagi dikonfigurasi memakai URL IP seperti `https://<IP-server>`. Gunakan hostname lokal:
-
-- Demo: `https://ticketing-demo.test`
-- Development: `https://ticketing-dev.test`
-
-Buat record pada DNS lokal/router:
-
-```text
-ticketing-demo.test  <IP server>
-ticketing-dev.test   <IP server>
-```
-
-Jika IP server berubah, update record DNS lokal saja. Tidak perlu mengubah source, Docker image, atau rebuild aplikasi. Jika router/server DNS mendukung DHCP reservation, pasang reservation untuk perangkat server agar IP lebih stabil.
-
-Konfigurasi terkait ada di `.env.example`, `.env.demo`, dan `.env.dev`:
-
-```env
-PUBLIC_WEB_URL=https://ticketing-demo.test,https://localhost
-VITE_API_URL=/api/v1
-TLS_CERT_FILE=./runtime/certs/demo/server-cert.pem
-TLS_KEY_FILE=./runtime/certs/demo/server-key.pem
-```
-
-`VITE_API_URL=/api/v1` sengaja memakai path relatif agar frontend memanggil API pada hostname yang sama dengan halaman yang sedang dibuka. Untuk HTTPS tanpa warning di banyak smartphone/PC, gunakan sertifikat internal/CA lokal yang dipercaya perangkat dan pastikan SAN sertifikat berisi hostname yang dipakai.
-
-Untuk melihat penyebab service tidak healthy:
+### 4. Cek status container
 
 ```powershell
 ./scripts/docker-status.ps1
 ```
 
-Container API memakai `prisma db push` untuk bootstrap database demo. Untuk production, gunakan migration Prisma yang versioned dan direview.
+---
 
-## Menjalankan secara lokal
+## 💻 Menjalankan Secara Lokal
 
-Persyaratan: Node.js 20+, npm, PostgreSQL 16+, dan Docker opsional untuk database.
+### Setup Manual
 
 ```bash
+# 1. Salin file environment
 cp .env.example .env
 cp apps/api/.env.example apps/api/.env
 cp apps/web/.env.example apps/web/.env
 
+# 2. Jalankan hanya database via Docker
 docker compose -f docker-compose.yml -f docker-compose.local.yml up -d postgres
+
+# 3. Install dependencies
 npm install
-npm run db:generate
-npm run db:push
-npm run db:seed
+
+# 4. Setup database
+npm run db:generate   # generate Prisma Client
+npm run db:push       # sinkronisasi schema
+npm run db:seed       # isi data demo
+
+# 5. Jalankan dev server
 npm run dev
 ```
 
-Alternatif setup otomatis:
+### Setup Otomatis (Script)
 
 ```bash
+# Bash
 ./scripts/setup.sh
-# PowerShell: ./scripts/setup.ps1
+
+# PowerShell
+./scripts/setup.ps1
+
+# Kemudian jalankan dev server
 npm run dev
 ```
 
-Akses lokal:
+---
 
-- Web: `http://localhost:5173`
-- API: `http://localhost:3000/api/v1`
-- Swagger: `http://localhost:3000/docs`
+## ⚙️ Konfigurasi Environment
 
-## Akun dan data demo
+Gunakan `.env.example` sebagai acuan. **Jangan gunakan secret default pada deployment production.**
+
+### Variabel Utama
+
+| Variabel | Wajib | Default | Keterangan |
+|---|---|---|---|
+| `DATABASE_URL` | ✅ | — | Connection string PostgreSQL |
+| `JWT_ACCESS_SECRET` | ✅ | — | Minimal 32 karakter |
+| `JWT_REFRESH_SECRET` | ✅ | — | Minimal 32 karakter |
+| `PUBLIC_WEB_URL` | ✅ (prod) | `https://localhost` | URL frontend, bisa beberapa (pisah koma) |
+| `EMAIL_WEB_BASE_URL` | ✅ (prod) | — | Base URL untuk direct link di email |
+| `APP_ENV` | — | `DEVELOPMENT` | `DEVELOPMENT` atau `PRODUCTION` |
+| `PORT` | — | `3000` | Port API |
+
+### Konfigurasi SMTP (Email Notifikasi)
+
+Email notifikasi **opsional** di development. Jika SMTP tidak dikonfigurasi, email dinonaktifkan secara otomatis.
+
+| Variabel | Keterangan |
+|---|---|
+| `SMTP_HOST` | Host SMTP (misal: `smtp.gmail.com`) |
+| `SMTP_PORT` | Port SMTP (default: `587`) |
+| `SMTP_SECURE` | `true` untuk port `465`, `false` untuk STARTTLS |
+| `SMTP_USER` | Username SMTP |
+| `SMTP_PASS` | Password SMTP |
+| `SMTP_FROM` | Alamat pengirim (misal: `Ticketing SLA <it@example.com>`) |
+| `SMTP_TLS_REJECT_UNAUTHORIZED` | `true` untuk production (default: `true`) |
+| `SMTP_CONNECTION_TIMEOUT_MS` | Timeout koneksi SMTP (default: `30000`) |
+
+### Konfigurasi Media Storage
+
+| Variabel | Keterangan |
+|---|---|
+| `MEDIA_STORAGE_PROVIDER` | `LOCAL` (development) atau `VERCEL_BLOB` (production) |
+| `BLOB_STORE_ID` | ID Vercel Blob Store (jika `VERCEL_BLOB`) |
+| `BLOB_READ_WRITE_TOKEN` | Token Vercel Blob (jika `VERCEL_BLOB`) |
+
+### Konfigurasi SLA Scheduler
+
+| Variabel | Keterangan |
+|---|---|
+| `SLA_SCHEDULER_MODE` | `INTERNAL` (development) atau `EXTERNAL` (Vercel Cron) |
+| `SLA_INTERNAL_INTERVAL_MS` | Interval scheduler internal (default: `60000` ms) |
+| `SLA_CRON_SECRET` | Secret untuk Vercel Cron (wajib jika `EXTERNAL`) |
+
+> **Production:** Wajib menggunakan `APP_ENV=PRODUCTION`, `MEDIA_STORAGE_PROVIDER=VERCEL_BLOB`, dan `SLA_SCHEDULER_MODE=EXTERNAL`.
+
+---
+
+## 🔧 Perintah Penting
+
+```bash
+# Development
+npm run dev              # Jalankan API dan Web secara bersamaan
+npm run preflight        # Validasi workspace dan dependency
+
+# Build
+npm run build            # Build contracts > API > Web
+
+# Database
+npm run db:generate      # Generate Prisma Client
+npm run db:push          # Sinkronisasi schema (dev/demo)
+npm run db:migrate       # Buat migration versioned
+npm run db:deploy        # Deploy migration (staging/CI)
+npm run db:seed          # Isi data demo
+npm run db:studio        # Buka Prisma Studio di browser
+
+# Testing & Quality
+npm run test             # Unit test backend dan frontend
+npm run lint             # Static lint seluruh workspace
+npm run format           # Format kode dengan Prettier
+
+# Validasi
+./scripts/smoke-check.sh # Sanity check endpoint dan infrastruktur
+```
+
+---
+
+## 👥 Akun & Data Demo
 
 | Role | Email | Password |
 |---|---|---|
-| Administrator | `forfun071020@gmail.com` | `Admin123!` |
-| Head | `head@example.com` | `Head123!` |
-| Technician 1 | `tech1@example.com` | `Tech123!` |
-| Technician 2 | `tech2@example.com` | `Tech123!` |
-| Technician 3 | `tech3@example.com` | `Tech123!` |
+| **Administrator** | `forfun071020@gmail.com` | `Admin123!` |
+| **Head** | `head@example.com` | `Head123!` |
+| **Technician 1** | `tech1@example.com` | `Tech123!` |
+| **Technician 2** | `tech2@example.com` | `Tech123!` |
+| **Technician 3** | `tech3@example.com` | `Tech123!` |
+| **Teknisi (Pending Approval)** | `pending@example.com` | `Tech123!` |
 
-- Teknisi menunggu approval: `pending@example.com` / `Tech123!`
-- QR demo: `DEMO-SITE-QR`
-- Form pengaduan Docker: `https://ticketing-demo.test/complaint/DEMO-SITE-QR`
-- Ticket contoh: `TKT-DEMO01`, nomor tracking `628171111111`
+**Data Demo Lainnya:**
+- 🔲 QR Code demo: `DEMO-SITE-QR`
+- 🎫 Ticket contoh: `TKT-DEMO01`
+- 📱 Nomor tracking: `628171111111`
+- 🔗 Form pengaduan: `https://ticketing-demo.test/complaint/DEMO-SITE-QR`
 
-## Perintah penting
+---
 
-```bash
-npm run preflight    # validasi workspace dan dependency lokal
-npm run build        # build contracts, API, dan web
-npm run test         # unit test backend dan test frontend
-npm run lint         # static lint seluruh workspace
-npm run db:generate  # generate Prisma Client
-npm run db:push      # sinkronisasi schema untuk demo/development
-npm run db:migrate   # membuat migration versioned
-npm run db:seed      # data demo
-./scripts/smoke-check.sh
-```
+## 🌐 Akses Aplikasi
 
-## Struktur Repository
+### Docker (Production-like)
+
+| Layanan | URL |
+|---|---|
+| 🖥️ Web App | `https://ticketing-demo.test` |
+| 🔌 REST API | `https://ticketing-demo.test/api/v1` |
+| 📄 Swagger Docs | `https://ticketing-demo.test/docs` |
+| 🏥 Health Live | `https://ticketing-demo.test/api/v1/health/live` |
+| 🏥 Health Ready | `https://ticketing-demo.test/api/v1/health/ready` |
+
+### Development Lokal
+
+| Layanan | URL |
+|---|---|
+| 🖥️ Web App | `http://localhost:5173` |
+| 🔌 REST API | `http://localhost:3000/api/v1` |
+| 📄 Swagger Docs | `http://localhost:3000/docs` |
+
+---
+
+## 📡 Akses LAN dengan Hostname
+
+Aplikasi menggunakan hostname lokal, bukan URL IP langsung. Daftarkan hostname berikut ke DNS lokal/router Anda:
 
 ```text
-ticketing-sla/
-├── apps/
-│   ├── api/                     # Backend REST API (NestJS, Prisma, PostgreSQL)
-│   │   ├── prisma/              # Schema database dan script seed migration
-│   │   └── src/
-│   │       ├── config/          # Konfigurasi environment dan variabel global
-│   │       ├── database/        # Prisma service & transaksi database
-│   │       ├── common/          # Interceptor, exception filter, decorator, dll
-│   │       └── modules/         # Modul fitur backend (Domain-driven)
-│   │           ├── auth/        # Autentikasi & Role-based Access Control (RBAC)
-│   │           ├── tickets/     # Manajemen ticket, lifecycle, dan resume/reschedule
-│   │           ├── sla/         # Perhitungan SLA respond & SLA pekerjaan (termasuk saat PENDING)
-│   │           ├── technicians/ # Manajemen profil teknisi & persetujuan akun
-│   │           ├── assignments/ # Logika penugasan teknisi multi-assign pada ticket
-│   │           ├── media/       # Aturan upload & validasi file/foto/video
-│   │           └── ...          # Modul lain (reports, audit, notifications)
-│   │
-│   └── web/                     # Frontend Web SPA (React, Vite, Tailwind CSS, React Query)
-│       ├── public/              # Aset statis (favicon, image, manifest)
-│       └── src/
-│           ├── api/             # Konfigurasi Axios & central API caller functions
-│           ├── components/      # Reusable UI component (Button, Form, Table, Modal)
-│           ├── features/        # Komponen modular yang mewakili business logic (Slice feature)
-│           ├── hooks/           # Custom React hook (seperti integrasi API Data fetching)
-│           ├── lib/             # Konfigurasi eksternal third-party library
-│           ├── pages/           # Komponen halaman level atas (struktur layar utama per route)
-│           │   ├── admin/       # Halaman dashboard, pelaporan, dan manajemen Admin/Head
-│           │   ├── technician/  # Halaman operasional, task, dan check-in Teknisi
-│           │   └── public/      # Halaman portal klien (contoh: public complaint multi-upload)
-│           ├── routes/          # Konfigurasi struktur dan proteksi React Router
-│           ├── store/           # Global state management lokal
-│           ├── types/           # Type definisi frontend yang bersifat internal web
-│           └── utils/           # Fungsi utilitas (formatter tanggal, konversi file, dll)
-│
-├── packages/
-│   └── contracts/               # Paket Typescript mandiri yang dipakai bersama (Monorepo)
-│       └── src/
-│           ├── api/             # Interface DTO (Data Transfer Object) request & response
-│           └── enums/           # Standar enum yang sama (misal: TicketStatus, Role)
-│
-├── infra/                       # Kebutuhan Infrastruktur dan Deployment
-│   └── nginx/                   # Reverse proxy config untuk deployment Docker
-│
-├── scripts/                     # Script automasi untuk membantu developer
-│   ├── setup.sh                 # Script instalasi dan inisialisasi environment
-│   ├── docker-seed.ps1          # Injeksi data demo ke database Docker
-│   └── smoke-check.sh           # Tes validasi sanity check environment
-│
-├── docs/                        # Dokumentasi spesifikasi sistem (Requirement PRD, Flowchart)
-├── README.md                    # Dokumentasi panduan utama proyek
-├── IMPLEMENTATION-NOTES.md      # Catatan asumsi teknis dan cakupan rilis MVP
-├── Implementation Update Roadmap.md # Rencana pembaruan per fase yang sedang berjalan (Roadmap)
-└── docker-compose.yml           # Konfigurasi Docker compose untuk backend dan PostgreSQL
+ticketing-demo.test   <IP server>
+ticketing-dev.test    <IP server>
 ```
 
-## Status Implementasi (Berdasarkan Roadmap)
+Jika IP server berubah, cukup update record DNS lokal — **tidak perlu rebuild image atau mengubah source code**.
 
-Berdasarkan dokumen `Implementation Update Roadmap.md`, pengembangan saat ini sedang berada di **Phase 7 - Public Complaint**.
+**Konfigurasi relevan di `.env`:**
+```env
+PUBLIC_WEB_URL=https://ticketing-demo.test,https://localhost
+EMAIL_WEB_BASE_URL=https://ticketing-demo.test
+VITE_API_URL=/api/v1
+TLS_CERT_FILE=./runtime/certs/demo/server-cert.pem
+TLS_KEY_FILE=./runtime/certs/demo/server-key.pem
+```
 
-**Fase yang Telah Selesai:**
-- ✅ **Phase 1:** Schema, Enum, dan Backward Compatibility (Penambahan field dan status `PENDING` pada database).
-- ✅ **Phase 2:** State Machine, Reschedule, Resume, dan SLA (Workflow SLA berjalan saat status pending).
-- ✅ **Phase 3:** Menghilangkan Reject Operasional (Menghapus flow tolak oleh teknisi).
-- ✅ **Phase 4:** Backend Media Rules (Validasi upload foto/video di layer API).
-- ✅ **Phase 5:** Head/Admin Ticket Detail (Antarmuka untuk Reschedule/Resume ticket).
-- ✅ **Phase 6:** Technician Workflow (Aturan baru untuk upload foto/video saat check-in dan completion).
-- ✅ **Phase 7:** Public Complaint (Multi-upload media di portal klien).
-- ✅ **Phase 8:** Report, Dashboard, Filter, dan Dokumentasi.
-- ✅ **Phase 9:** Notification, Direct Link, dan Email.
+> `VITE_API_URL=/api/v1` menggunakan path relatif agar frontend memanggil API pada hostname yang sama dengan halaman yang dibuka.
 
-**Fase Saat Ini (Sedang Dikerjakan):**
-- 🔄 **Phase 10:** Regression, QA, dan UAT (Test End-to-End).
+---
 
+## 📈 Status Implementasi
 
-## Environment
+Berdasarkan `Implementation Update Roadmap.md`, roadmap pengembangan saat ini:
 
-Gunakan `.env.example`, `apps/api/.env.example`, dan `apps/web/.env.example` sebagai acuan. Jangan gunakan secret default pada deployment production.
+| Phase | Status | Deskripsi |
+|---|---|---|
+| **Phase 1** | ✅ Selesai | Schema, Enum, dan Backward Compatibility |
+| **Phase 2** | ✅ Selesai | State Machine, Reschedule, Resume, dan SLA |
+| **Phase 3** | ✅ Selesai | Menghilangkan Reject Operasional |
+| **Phase 4** | ✅ Selesai | Backend Media Rules |
+| **Phase 5** | ✅ Selesai | Head/Admin Ticket Detail |
+| **Phase 6** | ✅ Selesai | Technician Workflow (foto/video check-in & completion) |
+| **Phase 7** | ✅ Selesai | Public Complaint (multi-upload media portal klien) |
+| **Phase 8** | ✅ Selesai | Report, Dashboard, Filter, dan Dokumentasi |
+| **Phase 9** | ✅ Selesai | Notification, Direct Link, dan Email |
+| **Phase 10** | 🔄 Berjalan | Regression, QA, dan UAT (Test End-to-End) |
+
+---
+
+## 📝 Changelog
+
+Lihat [CHANGELOG.md](CHANGELOG.md) untuk riwayat perubahan lengkap per versi.
+
+**Versi terbaru: `1.0.5`**
+- Mengganti Prisma seed TypeScript menjadi `seed.js` yang dijalankan langsung oleh Node
+- Menghapus ketergantungan runtime terhadap `ts-node`
+- Menambahkan validasi preflight agar file seed dan command seed runtime tetap sinkron
+
+---
+
+## 📚 Dokumentasi Tambahan
+
+| Dokumen | Deskripsi |
+|---|---|
+| [`IMPLEMENTATION-NOTES.md`](IMPLEMENTATION-NOTES.md) | Catatan asumsi teknis dan cakupan rilis MVP |
+| [`CHANGELOG.md`](CHANGELOG.md) | Riwayat perubahan setiap versi |
+| [`Implementation Update Roadmap.md`](Implementation%20Update%20Roadmap.md) | Rencana pembaruan per fase |
+| [`docs/`](docs/) | Dokumentasi spesifikasi sistem (PRD, flowchart) |
+
+---
+
+<div align="center">
+  <sub>Built with ❤️ — Ticketing SLA v1.0.5</sub>
+</div>

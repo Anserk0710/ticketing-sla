@@ -7,7 +7,7 @@ import { Badge } from '../../components/ui/badge';
 import { Card } from '../../components/ui/card';
 import { PageHeader } from '../../components/data-display/page-header';
 import { SlaCountdown } from '../../components/data-display/sla-countdown';
-import { formatDate } from '../../utils/format';
+import { formatDate, toAverageDurationDisplay } from '../../utils/format';
 
 function Stat({ label, value, icon: Icon, note, tone = 'alice' }: { label: string; value: number; icon: typeof ClipboardList; note?: string; tone?: 'alice' | 'amber' | 'rose' | 'emerald' | 'blue' }) {
 
@@ -43,6 +43,8 @@ export function DashboardPage() {
   if (summary.error || tickets.error) return <ErrorPanel error={summary.error ?? tickets.error} />;
 
   const data = summary.data;
+  const averageResponse = toAverageDurationDisplay(data.mttr?.respondHours);
+  const averageResolution = toAverageDurationDisplay(data.mttr?.resolutionHours);
 
   // Phase 8: Memastikan dashboard menghitung PENDING sebagai aktif/tertunda, bukan selesai.
   const activeAndDelayedTickets =
@@ -63,8 +65,8 @@ export function DashboardPage() {
         {/* Update Label dan Value untuk mencakup tiket PENDING dan REOPENED */}
         <Stat label="Aktif & Tertunda" value={activeAndDelayedTickets} icon={Wrench} tone="blue" note="Termasuk ticket pending" />
 
-        <Stat label="Kecepatan Respons" value={data.mttr?.respondHours ?? 0} icon={Clock3} tone="rose" note="Rata-rata (Jam)" />
-        <Stat label="Kecepatan Selesai" value={data.mttr?.resolutionHours ?? 0} icon={CheckCircle2} tone="emerald" note="Rata-rata (Jam)" />
+        <Stat label="Kecepatan Respons" value={averageResponse.value} icon={Clock3} tone="rose" note={averageResponse.note} />
+        <Stat label="Kecepatan Selesai" value={averageResolution.value} icon={CheckCircle2} tone="emerald" note={`${averageResolution.note} · sejak absensi awal teknisi`} />
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.5fr_1fr]">

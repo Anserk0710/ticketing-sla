@@ -16,9 +16,13 @@
     "format": "prettier --write .",
     "db:generate": "npm run prisma:generate -w @ticketing/api",
     "db:migrate": "npm run prisma:migrate -w @ticketing/api",
+    "db:deploy": "npm run prisma:deploy -w @ticketing/api",
+    "db:deploy:production": "npm run prisma:deploy:production -w @ticketing/api",
     "db:seed": "npm run prisma:seed -w @ticketing/api",
-    "db:studio": "npm run prisma:studio -w @ticketing/api",
-    "db:push": "npm run prisma:push -w @ticketing/api"
+    "db:seed:production": "npm run prisma:seed:production -w @ticketing/api",
+    "db:studio": "node --env-file=.env node_modules/prisma/build/index.js studio --schema apps/api/prisma/schema.prisma --hostname 127.0.0.1 --port 5555 --browser none",
+    "db:push": "npm run prisma:push -w @ticketing/api",
+    "infra:verify:production": "npm run infra:verify:production -w @ticketing/api"
   },
   "devDependencies": {
     "@eslint/js": "^9.22.0",
@@ -29,6 +33,9 @@
     "typescript-eslint": "^8.26.0"
   },
   "engines": {
-    "node": ">=20"
+    "node": "22.x"
+  },
+  "dependencies": {
+    "vercel": "^59.7.0"
   }
 }

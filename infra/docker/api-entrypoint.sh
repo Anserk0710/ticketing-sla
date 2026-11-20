@@ -40,9 +40,9 @@ fi
 
 cd "$APP_DIR"
 
-echo "[api-entrypoint] Menyiapkan skema database..."
+echo "[api-entrypoint] Menerapkan migration database..."
 attempt=1
-while ! run_as_node node "$PRISMA_CLI" db push --skip-generate --schema "$SCHEMA"; do
+while ! run_as_node node "$PRISMA_CLI" migrate deploy --schema "$SCHEMA"; do
   if [ "$attempt" -ge "$RETRIES" ]; then
     echo "[api-entrypoint] Database belum siap setelah $RETRIES percobaan." >&2
     exit 1
@@ -52,5 +52,5 @@ while ! run_as_node node "$PRISMA_CLI" db push --skip-generate --schema "$SCHEMA
   sleep "$DELAY"
 done
 
-echo "[api-entrypoint] Skema database siap. Menjalankan NestJS..."
+echo "[api-entrypoint] Migration database siap. Menjalankan NestJS..."
 exec_as_node node "$APP_DIR/dist/main.js"

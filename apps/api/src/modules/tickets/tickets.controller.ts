@@ -32,6 +32,7 @@ import {
   TrackTicketDto,
 } from './tickets.dto';
 import { TicketsService } from './tickets.service';
+import { BackgroundTaskService } from 'src/common/services/background-task.service';
 
 @ApiTags('Tickets')
 @Controller()
@@ -45,6 +46,9 @@ export class TicketsController {
 
     private readonly email:
       EmailService,
+
+    private readonly background:
+      BackgroundTaskService,
   ) { }
 
   @Public()
@@ -107,11 +111,18 @@ export class TicketsController {
      * SMTP/database error sehingga tidak ada
      * unhandled promise rejection.
      */
+
     if (
-      !existingIdempotency?.responseId
+      !existingIdempotency
+        ?.responseId
     ) {
-      void this.email.sendNewTicketNotification(
-        result.id,
+      this.background.run(
+        `new-ticket-email:${result.id}`,
+
+        this.email
+          .sendNewTicketNotification(
+            result.id,
+          ),
       );
     }
 

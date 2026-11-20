@@ -22,23 +22,41 @@ services:
     build:
       context: .
       dockerfile: infra/docker/api.Dockerfile
+
     restart: unless-stopped
+
     environment:
+      APP_ENV: ${APP_ENV:-DEVELOPMENT}
       NODE_ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_USER:-ticketing}:${POSTGRES_PASSWORD:-ticketing}@postgres:5432/${POSTGRES_DB:-ticketing_sla}?schema=public
+
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-ticketing}:${POSTGRES_PASSWORD:-ticketing}@postgres:5432/${POSTGRES_DB:-ticketing_sla}?schema=public}
+
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-me-access-secret-32-characters}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-refresh-secret-32-characters}
       JWT_ISSUER: ${JWT_ISSUER:-ticketing-sla-api}
       JWT_AUDIENCE: ${JWT_AUDIENCE:-ticketing-sla-web}
+
       PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-https://localhost}
       EMAIL_WEB_BASE_URL: ${EMAIL_WEB_BASE_URL:-}
+
+      MEDIA_STORAGE_PROVIDER: ${MEDIA_STORAGE_PROVIDER:-LOCAL}
+      UPLOAD_DIR: ${UPLOAD_DIR:-uploads}
+
+      BLOB_STORE_ID: ${BLOB_STORE_ID:-}
+      BLOB_READ_WRITE_TOKEN: ${BLOB_READ_WRITE_TOKEN:-}
+
+      SLA_SCHEDULER_MODE: ${SLA_SCHEDULER_MODE:-INTERNAL}
+      SLA_INTERNAL_INTERVAL_MS: ${SLA_INTERNAL_INTERVAL_MS:-60000}
+      SLA_CRON_SECRET: ${SLA_CRON_SECRET:-}
+
       PORT: 3000
+
       DATABASE_BOOTSTRAP_RETRIES: ${DATABASE_BOOTSTRAP_RETRIES:-30}
       DATABASE_BOOTSTRAP_DELAY_SECONDS: ${DATABASE_BOOTSTRAP_DELAY_SECONDS:-2}
 
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_SECURE: ${SMTP_SECURE:-}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-}
@@ -47,11 +65,14 @@ services:
 
     ports:
       - "3000"
+
     depends_on:
       postgres:
         condition: service_healthy
+
     volumes:
       - api_uploads:/app/apps/api/uploads
+
     healthcheck:
       test: [ "CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/v1/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))" ]
       interval: 10s

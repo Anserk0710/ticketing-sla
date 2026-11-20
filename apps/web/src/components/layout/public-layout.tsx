@@ -1,11 +1,13 @@
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
-import { ShieldCheck, FilePlus2, SearchCode } from 'lucide-react';
+import { Link, NavLink, Outlet } from 'react-router-dom';
+import { ShieldCheck, FilePlus2, House, SearchCode } from 'lucide-react';
+
+const navigation = [
+  { to: '/', label: 'Home', icon: House, end: true },
+  { to: '/complaint', label: 'Buat Keluhan', icon: FilePlus2 },
+  { to: '/track', label: 'Lacak Ticket', icon: SearchCode }
+];
 
 export function PublicLayout() {
-  const location = useLocation();
-  // 'Buat Keluhan' active state matches '/', '/complaint', and '/complaint/:qrToken'
-  const isComplaintActive = location.pathname === '/' || location.pathname.startsWith('/complaint');
-
   return (
     /* Page background: #ffffff (white) */
     <div className="flex min-h-screen flex-col bg-transparent text-charcoal-950">
@@ -24,31 +26,21 @@ export function PublicLayout() {
           </Link>
 
           {/* Nav links: hidden on mobile (replaced by bottom nav), visible sm+ */}
-          <nav className="hidden items-center gap-1 text-sm font-medium sm:flex">
-            <Link
-              to="/"
-              className={
-                `rounded-xl px-3.5 py-2.5 transition-all duration-150 ${
-                  isComplaintActive
-                    ? 'bg-alice-blue-600 font-semibold text-white shadow-[4px_4px_10px_rgba(2,43,58,0.16),-3px_-3px_8px_rgba(255,255,255,0.55)]'
-                    : 'text-charcoal-700 hover:bg-lavender-grey-200 hover:text-charcoal-950'
-                }`
-              }
-            >
-              Buat Keluhan
-            </Link>
-            <NavLink
-              to="/track"
+          <nav aria-label="Navigasi utama" className="hidden items-center gap-1 text-sm font-medium sm:flex">
+            {navigation.map(({ to, label, end }) => <NavLink
+              key={to}
+              to={to}
+              end={end}
               className={({ isActive }) =>
-                `rounded-xl px-3.5 py-2.5 transition-all duration-150 ${
+                `focus-ring rounded-xl px-2.5 py-2.5 transition-all duration-150 md:px-3.5 ${
                   isActive
-                    ? 'bg-alice-blue-600 font-semibold text-white shadow-[4px_4px_10px_rgba(2,43,58,0.16),-3px_-3px_8px_rgba(255,255,255,0.55)]'
+                    ? 'bg-alice-blue-600 font-semibold text-white hover:text-white shadow-[4px_4px_10px_rgba(2,43,58,0.16),-3px_-3px_8px_rgba(255,255,255,0.55)]'
                     : 'text-charcoal-700 hover:bg-lavender-grey-200 hover:text-charcoal-950'
                 }`
               }
             >
-              Lacak Ticket
-            </NavLink>
+              {label}
+            </NavLink>)}
           </nav>
         </div>
       </header>
@@ -65,35 +57,23 @@ export function PublicLayout() {
       </footer>
 
       {/* Bottom Navigation — mobile only (hidden sm+) */}
-      <nav className="fixed bottom-0 left-0 right-0 z-30 border-t border-white/40 bg-lavender-grey-200/90 backdrop-blur-xl sm:hidden">
+      <nav aria-label="Navigasi utama ponsel" className="fixed bottom-0 left-0 right-0 z-30 border-t border-white/40 bg-lavender-grey-200/90 backdrop-blur-xl sm:hidden">
         <div className="mx-auto flex max-w-sm items-center justify-around px-2 py-2">
-          <Link
-            to="/"
-            className={
-              `flex flex-col items-center gap-1 rounded-2xl px-5 py-2 text-[10px] font-semibold transition-all duration-150 ${
-                isComplaintActive
-                  ? 'bg-alice-blue-600 text-white shadow-[4px_4px_10px_rgba(2,43,58,0.2),-3px_-3px_8px_rgba(255,255,255,0.5)]'
-                  : 'text-charcoal-500'
-              }`
-            }
-          >
-            <FilePlus2 className="h-5 w-5" />
-            <span>Buat Keluhan</span>
-          </Link>
-
-          <NavLink
-            to="/track"
+          {navigation.map(({ to, label, icon: Icon, end }) => <NavLink
+            key={to}
+            to={to}
+            end={end}
             className={({ isActive }) =>
-              `flex flex-col items-center gap-1 rounded-2xl px-5 py-2 text-[10px] font-semibold transition-all duration-150 ${
+              `focus-ring flex min-w-0 flex-1 flex-col items-center gap-1 rounded-2xl px-1 py-2 text-[10px] font-semibold transition-all duration-150 ${
                 isActive
-                  ? 'bg-alice-blue-600 text-white shadow-[4px_4px_10px_rgba(2,43,58,0.2),-3px_-3px_8px_rgba(255,255,255,0.5)]'
+                  ? 'bg-alice-blue-600 text-white hover:text-white shadow-[4px_4px_10px_rgba(2,43,58,0.2),-3px_-3px_8px_rgba(255,255,255,0.5)]'
                   : 'text-charcoal-500'
               }`
             }
           >
-            <SearchCode className="h-5 w-5" />
-            <span>Lacak Ticket</span>
-          </NavLink>
+            <Icon aria-hidden="true" className="h-5 w-5" />
+            <span className="text-inherit">{label}</span>
+          </NavLink>)}
         </div>
 
         {/* Safe area spacer for iOS notch */}

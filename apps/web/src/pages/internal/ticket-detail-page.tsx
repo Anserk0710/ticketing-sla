@@ -2,18 +2,23 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
+  Image,
   MapPin,
   MessageSquare,
   RotateCcw,
   UserPlus,
   Users,
+  Video,
   Wrench,
+  X,
 } from 'lucide-react';
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
-import { apiRequest } from '../../api/http-client';
+import { apiRequest, getStoredSession } from '../../api/http-client';
 import { PageHeader } from '../../components/data-display/page-header';
 import { SlaCountdown } from '../../components/data-display/sla-countdown';
 import { ErrorPanel, Loading } from '../../components/feedback/loading';
@@ -37,6 +42,301 @@ const RESCHEDULABLE_STATUSES = [
   'IN_PROGRESS',
   'REOPENED',
 ] as const;
+
+const API_URL = (
+  (import.meta as any).env?.VITE_API_URL || '/api/v1'
+).replace(/\/$/, '');
+
+const MEMBER_MEDIA_ACTION_CLASS =
+  'inline-flex cursor-pointer items-center gap-1 whitespace-nowrap font-sans text-[12px] font-semibold leading-4 text-alice-blue-600 transition-colors hover:text-alice-blue-700 focus-visible:text-alice-blue-700';
+
+/*
+ * Hook: fetch media dengan Bearer token lalu buat Blob URL.
+ * Revoke dilakukan saat unmount untuk menghindari memory leak.
+ */
+function useMediaBlobUrl(mediaId: string | null): {
+  url: string | null;
+  loading: boolean;
+  error: boolean;
+} {
+  const [url, setUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    if (!mediaId) return;
+
+    let objectUrl: string | null = null;
+    let cancelled = false;
+
+    setLoading(true);
+    setError(false);
+    setUrl(null);
+
+    const session = getStoredSession();
+    const token = session?.accessToken ?? '';
+
+    fetch(`${API_URL}/media/${mediaId}/access`, {
+      headers: token
+        ? { Authorization: `Bearer ${token}` }
+        : {},
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error('media fetch failed');
+        return res.blob();
+      })
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setUrl(objectUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [mediaId]);
+
+  return { url, loading, error };
+}
+
+type MediaItem = {
+  id: string;
+  mimeType: string;
+  originalName?: string;
+};
+
+/*
+ * Sub-komponen untuk menampilkan 1 media item (gambar / video)
+ * dengan blob URL yang di-fetch dengan auth header.
+ */
+function MediaViewer({
+  item,
+  className,
+}: {
+  item: MediaItem;
+  className?: string;
+}) {
+  const isVideo = item.mimeType.startsWith('video/');
+  const { url, loading, error } = useMediaBlobUrl(
+    item.id,
+  );
+
+  if (loading) {
+    return (
+      <div
+        className={`flex items-center justify-center bg-black/40 ${className ?? ''}`}
+      >
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-white/30 border-t-white" />
+      </div>
+    );
+  }
+
+  if (error || !url) {
+    return (
+      <div
+        className={`flex flex-col items-center justify-center gap-2 bg-black/40 text-white/60 ${className ?? ''}`}
+      >
+        <X className="h-8 w-8" />
+        <span className="text-xs">Gagal memuat media</span>
+      </div>
+    );
+  }
+
+  if (isVideo) {
+    return (
+      <video
+        src={url}
+        controls
+        autoPlay
+        className={className}
+      />
+    );
+  }
+
+  return (
+    <img
+      src={url}
+      alt={item.originalName ?? 'Media'}
+      className={className}
+    />
+  );
+}
+
+/*
+ * ============================================================
+ * MEDIA MODAL COMPONENT
+ * Modal lightbox untuk preview foto dan video
+ * ============================================================
+ */
+function MediaModal({
+  items,
+  initialIndex = 0,
+  title,
+  onClose,
+}: {
+  items: MediaItem[];
+  initialIndex?: number;
+  title: string;
+  onClose: () => void;
+}) {
+  const [index, setIndex] =
+    useState(initialIndex);
+
+  const item = items[index];
+  const isVideo =
+    item?.mimeType?.startsWith('video/');
+
+  /* Tutup modal dengan Escape */
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowLeft' && index > 0)
+        setIndex((i) => i - 1);
+      if (
+        e.key === 'ArrowRight' &&
+        index < items.length - 1
+      )
+        setIndex((i) => i + 1);
+    };
+    window.addEventListener('keydown', handler);
+    return () =>
+      window.removeEventListener('keydown', handler);
+  }, [index, items.length, onClose]);
+
+  if (!item) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+        onClick={onClose}
+      />
+
+      {/* Modal Panel */}
+      <div className="relative z-10 flex w-full max-w-4xl flex-col gap-4 p-4">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {isVideo ? (
+              <Video className="h-5 w-5 text-white" />
+            ) : (
+              <Image className="h-5 w-5 text-white" />
+            )}
+            <h3 className="text-base font-bold text-white">
+              {title}
+            </h3>
+            {items.length > 1 && (
+              <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-semibold text-white">
+                {index + 1} / {items.length}
+              </span>
+            )}
+          </div>
+
+          <button
+            id="media-modal-close-btn"
+            onClick={onClose}
+            className="rounded-full bg-white/20 p-2 text-white transition hover:bg-white/40"
+            aria-label="Tutup modal"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Media Content */}
+        <div className="flex items-center gap-2">
+          {/* Prev button */}
+          {items.length > 1 && (
+            <button
+              id="media-modal-prev-btn"
+              onClick={() =>
+                setIndex((i) => Math.max(0, i - 1))
+              }
+              disabled={index === 0}
+              className="shrink-0 rounded-full bg-white/20 p-2 text-white transition hover:bg-white/40 disabled:opacity-30"
+              aria-label="Sebelumnya"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+          )}
+
+          {/* Media */}
+          <div className="flex flex-1 items-center justify-center overflow-hidden rounded-2xl bg-black/60">
+            <MediaViewer
+              key={item.id}
+              item={item}
+              className="max-h-[70vh] w-full object-contain"
+            />
+          </div>
+
+          {/* Next button */}
+          {items.length > 1 && (
+            <button
+              id="media-modal-next-btn"
+              onClick={() =>
+                setIndex((i) =>
+                  Math.min(items.length - 1, i + 1),
+                )
+              }
+              disabled={index === items.length - 1}
+              className="shrink-0 rounded-full bg-white/20 p-2 text-white transition hover:bg-white/40 disabled:opacity-30"
+              aria-label="Berikutnya"
+            >
+              <ChevronRight className="h-5 w-5" />
+            </button>
+          )}
+        </div>
+
+        {/* Filename */}
+        {item.originalName && (
+          <p className="text-center text-xs text-white/60">
+            {item.originalName}
+          </p>
+        )}
+
+        {/* Thumbnail strip (jika lebih dari 1) */}
+        {items.length > 1 && (
+          <div className="flex justify-center gap-2 overflow-x-auto py-1">
+            {items.map((m, i) => (
+              <button
+                key={m.id}
+                onClick={() => setIndex(i)}
+                className={`h-14 w-14 shrink-0 overflow-hidden rounded-lg border-2 transition ${i === index
+                    ? 'border-white'
+                    : 'border-white/20 opacity-60 hover:opacity-100'
+                  }`}
+                aria-label={`Media ${i + 1}`}
+              >
+                {m.mimeType.startsWith('video/') ? (
+                  <div className="flex h-full w-full items-center justify-center bg-white/10">
+                    <Video className="h-5 w-5 text-white" />
+                  </div>
+                ) : (
+                  <MediaViewer
+                    item={m}
+                    className="h-full w-full object-cover"
+                  />
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 type ActionName =
   | 'respond'
@@ -145,6 +445,15 @@ function SlaPanel({
 export function TicketDetailPage() {
   const { id = '' } = useParams();
   const qc = useQueryClient();
+
+  /*
+   * State untuk modal preview media
+   */
+  const [checkinModal, setCheckinModal] =
+    useState<{ items: MediaItem[]; memberId: string } | null>(null);
+
+  const [completionModal, setCompletionModal] =
+    useState<{ items: MediaItem[]; memberId: string } | null>(null);
   const { hasPermission, session } = useAuth();
 
   const ticket = useQuery({
@@ -1053,24 +1362,133 @@ export function TicketDetailPage() {
                                 </div>
                               </dl>
 
-                              {member
-                                .checkins?.[0] && (
-                                  <a
-                                    className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-alice-blue-700"
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    href={
-                                      `https://www.openstreetmap.org/?mlat=${member.checkins[0].latitude}` +
-                                      `&mlon=${member.checkins[0].longitude}` +
-                                      `#map=17/${member.checkins[0].latitude}/${member.checkins[0].longitude}`
-                                    }
-                                  >
-                                    <MapPin className="h-3 w-3" />
-                                    Lihat
-                                    lokasi
-                                    check-in
-                                  </a>
-                                )}
+                              <div className="mt-3 flex flex-col items-start gap-2 empty:hidden sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-5">
+                                {member
+                                  .checkins?.[0] && (
+                                    <a
+                                      className={MEMBER_MEDIA_ACTION_CLASS}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      href={
+                                        `https://www.openstreetmap.org/?mlat=${member.checkins[0].latitude}` +
+                                        `&mlon=${member.checkins[0].longitude}` +
+                                        `#map=17/${member.checkins[0].latitude}/${member.checkins[0].longitude}`
+                                      }
+                                    >
+                                      <MapPin className="h-3 w-3 shrink-0" />
+                                      Lihat
+                                      Lokasi
+                                      Check-in
+                                    </a>
+                                  )}
+
+                                {/*
+                                * ================================================
+                                * BUTTON: FOTO CHECK-IN
+                                * Muncul jika checkin memiliki mediaLinks
+                                * ================================================
+                                */}
+                                {(() => {
+                                  const checkinMedia: MediaItem[] =
+                                    member.checkins
+                                      ?.flatMap((c: any) =>
+                                        (c.mediaLinks ?? []).map(
+                                          (ml: any) => ({
+                                            id: ml.mediaAsset?.id,
+                                            mimeType:
+                                              ml.mediaAsset
+                                                ?.mimeType ??
+                                              'image/jpeg',
+                                            originalName:
+                                              ml.mediaAsset
+                                                ?.originalName,
+                                          }),
+                                        ),
+                                      )
+                                      .filter(
+                                        (m: MediaItem) => !!m.id,
+                                      ) ?? [];
+
+                                  if (!checkinMedia.length)
+                                    return null;
+
+                                  return (
+                                    <button
+                                      id={`btn-checkin-photo-${member.id}`}
+                                      type="button"
+                                      onClick={() =>
+                                        setCheckinModal({
+                                          items: checkinMedia,
+                                          memberId: member.id,
+                                        })
+                                      }
+                                      className={MEMBER_MEDIA_ACTION_CLASS}
+                                    >
+                                      <Image className="h-3 w-3 shrink-0" />
+                                      Foto Check-in
+                                    </button>
+                                  );
+                                })()}
+
+                                {/*
+                               * ================================================
+                               * BUTTON: MEDIA SELESAI
+                               * Muncul jika workCompletions memiliki mediaLinks
+                               * ================================================
+                               */}
+                                {(() => {
+                                  const completionMedia: MediaItem[] =
+                                    member.workCompletions
+                                      ?.flatMap((wc: any) =>
+                                        (wc.mediaLinks ?? []).map(
+                                          (ml: any) => ({
+                                            id: ml.mediaAsset?.id,
+                                            mimeType:
+                                              ml.mediaAsset
+                                                ?.mimeType ??
+                                              'image/jpeg',
+                                            originalName:
+                                              ml.mediaAsset
+                                                ?.originalName,
+                                          }),
+                                        ),
+                                      )
+                                      .filter(
+                                        (m: MediaItem) => !!m.id,
+                                      ) ?? [];
+
+                                  if (!completionMedia.length)
+                                    return null;
+
+                                  const hasVideo =
+                                    completionMedia.some((m) =>
+                                      m.mimeType.startsWith(
+                                        'video/',
+                                      ),
+                                    );
+
+                                  return (
+                                    <button
+                                      id={`btn-completion-media-${member.id}`}
+                                      type="button"
+                                      onClick={() =>
+                                        setCompletionModal({
+                                          items: completionMedia,
+                                          memberId: member.id,
+                                        })
+                                      }
+                                      className={MEMBER_MEDIA_ACTION_CLASS}
+                                    >
+                                      {hasVideo ? (
+                                        <Video className="h-3 w-3 shrink-0" />
+                                      ) : (
+                                        <Image className="h-3 w-3 shrink-0" />
+                                      )}
+                                      Media Selesai
+                                    </button>
+                                  );
+                                })()}
+                              </div>
 
                               {member.completionSummary && (
                                 <p className="mt-3 rounded-lg bg-white p-2 text-xs">
@@ -1842,6 +2260,32 @@ export function TicketDetailPage() {
           )}
         </aside>
       </div>
+
+      {/*
+       * ============================================================
+       * MODAL: FOTO CHECK-IN
+       * ============================================================
+       */}
+      {checkinModal && (
+        <MediaModal
+          items={checkinModal.items}
+          title="Foto Check-in"
+          onClose={() => setCheckinModal(null)}
+        />
+      )}
+
+      {/*
+       * ============================================================
+       * MODAL: MEDIA SELESAI (FOTO / VIDEO)
+       * ============================================================
+       */}
+      {completionModal && (
+        <MediaModal
+          items={completionModal.items}
+          title="Media Selesai"
+          onClose={() => setCompletionModal(null)}
+        />
+      )}
     </>
   );
 }
