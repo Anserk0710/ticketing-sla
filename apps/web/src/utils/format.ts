@@ -23,4 +23,7 @@ export function toAverageDurationDisplay(hours?: number | null): {
   };
 }
 
-export function statusLabel(value: string): string { return value.replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()); }
+export function statusLabel(value: string): string {
+  if (value.toUpperCase() === 'MET' || value.toUpperCase() === 'ACHIEVED') return 'Achieved';
+  return value.replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+}

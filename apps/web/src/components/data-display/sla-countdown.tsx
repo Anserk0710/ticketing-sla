@@ -40,7 +40,7 @@ export function SlaCountdown({
   });
 
   useEffect(() => {
-    if (!dueAt || completedAt || outcome === 'MET' || outcome === 'COMPLETED_BREACHED' || status === 'COMPLETED') {
+    if (!dueAt || completedAt || outcome === 'MET' || outcome === 'ACHIEVED' || outcome === 'COMPLETED_BREACHED' || status === 'COMPLETED') {
       setSecondsLeft(null);
       return;
     }
@@ -55,11 +55,11 @@ export function SlaCountdown({
     return () => clearInterval(interval);
   }, [dueAt, completedAt, outcome, status]);
 
-  if (completedAt || outcome === 'MET' || status === 'COMPLETED') {
+  if (completedAt || outcome === 'MET' || outcome === 'ACHIEVED' || status === 'COMPLETED') {
     return (
       <span className={cn('inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800 border border-emerald-200', className)}>
         <CheckCircle2 className="h-3.5 w-3.5" />
-        {outcome === 'MET' ? 'SLA Met' : 'Selesai'}
+        {outcome === 'MET' || outcome === 'ACHIEVED' ? 'Achieved' : 'Selesai'}
       </span>
     );
   }

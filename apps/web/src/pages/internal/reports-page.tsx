@@ -113,7 +113,14 @@ export function ReportsPage() {
                         <Badge value={row.slaRespondOutcome ?? row.slaRespondStatus ?? 'N/A'} />
                         <p className="mt-1 text-xs text-lavender-grey-500 font-medium">{formatDuration(row.slaRespondElapsedSeconds)}</p>
                       </td>
-                      <td className="py-3.5 px-4"><Badge value={row.slaWorkAggregate} /></td>
+                      <td className="py-3.5 px-4">
+                        <Badge value={row.slaWorkAggregate} />
+                        <p className="mt-1 text-xs text-lavender-grey-500 font-medium">
+                          {row.slaWorkAggregate === 'NOT_STARTED' || row.slaWorkElapsedSeconds == null
+                            ? '—'
+                            : formatDuration(row.slaWorkElapsedSeconds)}
+                        </p>
+                      </td>
                       <td className="py-3.5 px-4 text-charcoal-700 font-medium">{row.leadTechnician || '—'}</td>
                       <td className="py-3.5 px-4 text-xs font-medium text-lavender-grey-500">{formatDate(row.createdAt)}</td>
                     </tr>

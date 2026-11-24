@@ -14,7 +14,7 @@ export function Badge({ value, className, variant }: { value: string; className?
     tone = 'bg-rose-100 text-rose-800 border-rose-200/80';
   } else if (key.includes('WARNING') || ['PENDING_APPROVAL', 'NEW'].includes(key)) {
     tone = 'bg-amber-100 text-amber-900 border-amber-300/80';
-  } else if (['CLOSED', 'COMPLETED', 'MET', 'APPROVED'].includes(key)) {
+  } else if (['CLOSED', 'COMPLETED', 'MET', 'ACHIEVED', 'APPROVED'].includes(key)) {
     tone = 'bg-emerald-100 text-emerald-800 border-emerald-200/80';
   } else if (key === 'RESOLVED') {
     tone = 'bg-emerald-100 text-emerald-900 border-emerald-300/80';
@@ -40,9 +40,11 @@ export function Badge({ value, className, variant }: { value: string; className?
     tone = 'bg-iron-grey-100 text-charcoal-700 border-iron-grey-200/80';
   }
 
+  const label = key === 'MET' || key === 'ACHIEVED' ? 'Achieved' : value.replaceAll('_', ' ');
+
   return (
     <span className={cn('inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-bold transition-colors', tone, className)}>
-      {value.replaceAll('_', ' ')}
+      {label}
     </span>
   );
 }
